@@ -189,6 +189,7 @@ colcon_add_subdirectories(
         BASE_PATHS "${PROJECT_SOURCE_DIR}/src/"
         --packages-select
         common_cpp
+        mpu6500_ros2_control
         feetech_servo_ros2_control
 		
 )
