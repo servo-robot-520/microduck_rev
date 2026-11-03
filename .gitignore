@@ -1,0 +1,62 @@
+.idea
+.clion.source.upload.marker
+
+# CMake
+cmake-build-*/
+symlink_install_manifest.txt
+CMakeFiles
+
+# ros2
+build
+log
+install
+.ws_tools_build.lock
+
+# log
+logs
+
+# python
+.venv
+venv
+*.egg-info
+.env
+*.fuse_**
+.cache
+__pycache__
+
+# vibe coding
+.claude
+.mimocode
+.codex
+.opencode
+.agents
+.superpowers
+.planning
+**/superpowers/
+**/design/
+**/plans/
+findings.md
+progress.md
+task_plan.md
+
+#uv
+uv.lock
+
+# other
+*.new
+my_env.sh
+.config
+my_ide_env.sh
+**/superpowers
+
+# 发布产物
+/*_bin.zip
+/*_source.zip
+VERSION
+
+# 功能包
+src/common_cpp
+src/feetech_servo_ros2_control
+
+scripts
+ws_tools
