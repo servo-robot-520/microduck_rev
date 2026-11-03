@@ -191,5 +191,6 @@ colcon_add_subdirectories(
         common_cpp
         mpu6500_ros2_control
         feetech_servo_ros2_control
+        battery_monitor
 		
 )
