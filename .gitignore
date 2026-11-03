@@ -55,8 +55,12 @@ my_ide_env.sh
 VERSION
 
 # 功能包
+src/audio_io
+src/audio_io_interface
 src/common_cpp
+src/battery_monitor
 src/feetech_servo_ros2_control
+src/mpu6500_ros_control
 
 scripts
 ws_tools
