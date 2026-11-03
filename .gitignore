@@ -61,6 +61,8 @@ src/common_cpp
 src/battery_monitor
 src/feetech_servo_ros2_control
 src/mpu6500_ros_control
+src/tts
+src/tts_interface
 
 scripts
 ws_tools

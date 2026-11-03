@@ -15,13 +15,6 @@ if (DEFINED ENV{CLION_IDE})
     message(STATUS "CLion env detected")
 endif ()
 
-#[=============================================================================[
-  require_cxx23_stdlib()
-
-  在 configure 阶段验证当前编译器+标准库支持 C++23 的
-  <expected>, <format>, <ranges>，不通过则 FATAL_ERROR。
-  同时设置 CMAKE_CXX_STANDARD 23。
-]=============================================================================]
 function(require_cxx23_stdlib)
     set(CMAKE_CXX_STANDARD 23 PARENT_SCOPE)
     set(CMAKE_CXX_STANDARD_REQUIRED ON PARENT_SCOPE)
@@ -62,24 +55,12 @@ function(require_cxx23_stdlib)
                     "  Required : GCC 13+\n"
                     "===========================================\n\n"
                     "  Solutions:\n\n"
-                    "  1. Install GCC 13+ (Ubuntu):\n"
+                    "     Install GCC 13+ (Ubuntu):\n"
                     "     sudo apt update\n"
                     "     sudo apt install software-properties-common\n"
                     "     sudo add-apt-repository ppa:ubuntu-toolchain-r/test\n"
                     "     sudo apt update\n"
                     "     sudo apt install gcc-13 g++-13\n\n"
-                    "  2. Set compiler explicitly:\n"
-                    "     cmake -DCMAKE_CXX_COMPILER=g++-13 ..\n"
-                    "===========================================\n")
-        elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-            message(FATAL_ERROR
-                    "\n===========================================\n"
-                    "  \"${PROJECT_NAME}\" requires C++23 stdlib support\n"
-                    "  (<expected>, <format>, <ranges>)\n"
-                    "-------------------------------------------\n"
-                    "  Use Clang 17+ with libc++:\n"
-                    "     cmake -DCMAKE_CXX_COMPILER=clang++-17 \\\n"
-                    "           -DCMAKE_CXX_FLAGS='-stdlib=libc++' ..\n"
                     "===========================================\n")
         else ()
             message(FATAL_ERROR
@@ -88,7 +69,7 @@ function(require_cxx23_stdlib)
                     "  (<expected>, <format>, <ranges>)\n"
                     "-------------------------------------------\n"
                     "  Current compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\n"
-                    "  Please use GCC 13+ or Clang 17+ with libc++.\n"
+                    "  Please use GCC 13+ with libc++.\n"
                     "===========================================\n")
         endif ()
     endif ()
@@ -108,10 +89,6 @@ function(colcon_add_subdirectories)
     string(STRIP "${paths}" paths)
     string(REPLACE "\n" ";" paths "${paths}")
 
-    # 先收集全部 CMake 功能包。源码聚合构建中，动态库不会安装到 install/；
-    # 因而必须在创建任何 target 前，将所有预期的 build-tree 输出目录加入
-    # CMAKE_BUILD_RPATH。这样以库名 dlopen() 的插件可被 CLion 直接找到，
-    # 无需在每个 Run/Debug Configuration 中覆盖 LD_LIBRARY_PATH。
     set(colcon_cmake_package_paths)
     set(colcon_cmake_package_names)
     set(colcon_build_rpaths)
@@ -139,7 +116,6 @@ function(colcon_add_subdirectories)
                 "to CMAKE_BUILD_RPATH")
     endif ()
 
-    # 保持 colcon 的拓扑顺序，确保功能包可以直接使用已创建的 build-tree target。
     list(LENGTH colcon_cmake_package_paths colcon_cmake_package_count)
     if (colcon_cmake_package_count GREATER 0)
         math(EXPR colcon_cmake_package_last_index "${colcon_cmake_package_count} - 1")
@@ -152,13 +128,6 @@ function(colcon_add_subdirectories)
     endif ()
 endfunction()
 
-#[=============================================================================[
-  check_colcon_build_dir()
-
-  确保根 CMake 的 binary 目录不在 colcon 工作区的 build 目录内，
-  否则会覆盖 colcon 包的构建元数据。
-  仅需在顶层 CMakeLists.txt 中调用一次。
-]=============================================================================]
 function(check_colcon_build_dir)
     get_filename_component(_colcon_build_base
             "${CMAKE_SOURCE_DIR}/build" REALPATH)
@@ -181,21 +150,21 @@ endfunction()
 
 require_cxx23_stdlib()
 check_colcon_build_dir()
-# 标识顶层源码聚合构建。子功能包据此直接使用本次构建树中的 target，
-# 而不是通过 find_package() 导入工作区 install 快照。
+# 标识顶层源码聚合构建。
 set(ROS2_WS_SOURCE_BUILD ON)
-# 仅用于 CLion 的代码分析和调试。子包构建产物必须位于 CMAKE_BINARY_DIR 内，
-# 以免覆盖 colcon 使用的工作区 build/<package> 元数据。
-# 子功能包的构建输出存放在 cmake-build-*/colcon_packages/ 中。
+# 仅用于 CLion 的代码分析和调试。
 colcon_add_subdirectories(
         BUILD_BASE "${CMAKE_BINARY_DIR}/colcon_packages"
         BASE_PATHS "${PROJECT_SOURCE_DIR}/src/"
         --packages-select
         common_cpp
+        audio_io_interface
+#        duck_audio_interface
+#        tts_interface
         mpu6500_ros2_control
         feetech_servo_ros2_control
         battery_monitor
-        audio_io_interface
         audio_io
-		
+#        tts
+#        duck_audio
 )
