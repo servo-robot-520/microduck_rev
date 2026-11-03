@@ -193,5 +193,6 @@ colcon_add_subdirectories(
         feetech_servo_ros2_control
         battery_monitor
         audio_io_interface
+        audio_io
 		
 )
