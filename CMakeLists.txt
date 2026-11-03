@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.14)
 set(PROJECT_VERSION 1.0.0)
 project("microduck_rev")
 
+# 顶层启用 CTest：聚合构建下各子包的 ament_add_gtest 才能在根构建目录注册测试。
+include(CTest)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
