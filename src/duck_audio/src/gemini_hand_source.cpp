@@ -76,7 +76,8 @@ void GeminiHandSource::store(std::optional<HandSample> hand,
 void GeminiHandSource::on_depth(const sensor_msgs::msg::Image::ConstSharedPtr& message) {
     if (message->encoding != sensor_msgs::image_encodings::TYPE_16UC1 ||
         message->step < message->width * sizeof(uint16_t) || message->width == 0 ||
-        message->height == 0) {
+        message->height == 0 ||
+        message->data.size() < static_cast<std::size_t>(message->step) * message->height) {
         store(std::nullopt, std::chrono::steady_clock::now());
         return;
     }
@@ -112,7 +113,9 @@ void GeminiHandSource::on_depth(const sensor_msgs::msg::Image::ConstSharedPtr& m
 }
 
 void GeminiHandSource::on_cloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& message) {
-    if (message->point_step < 12 || message->width == 0) {
+    if (message->point_step < 12 || message->width == 0 || message->height == 0 ||
+        message->data.size() <
+                static_cast<std::size_t>(message->row_step) * message->height) {
         store(std::nullopt, std::chrono::steady_clock::now());
         return;
     }
