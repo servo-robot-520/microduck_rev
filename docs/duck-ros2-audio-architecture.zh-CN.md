@@ -211,6 +211,28 @@ flowchart LR
 采集健康看 `audio_io` 的 `~/state`（`capture_ok`/`capture_error`）和 `~/event`；`duck_ear` 只处理
 “有数据”之后的逻辑。
 
+### 6.3.1 放在 `duck_audio` 包内，还是单独节点？
+
+推荐折中：**库拆开，进程默认不拆。**
+
+- 在 `duck_audio` 包内增加独立 target `libduck_ear.so`，承载重采样、log-mel、CNN 和
+  `petting`/`sound_event` 事件；
+- **不要**让 `libduck_audio.so` 引用 `libduck_ear.so`；由 `duck_audio_node` 按
+  `ear.enabled` 组合 `EarModule` 并链接 `duck_ear`。默认仍是一个 `duck_audio` 进程，
+  `audio_io` 仍是另一个进程；
+- 需要故障隔离时，增加一个很薄的 `duck_ear_node`，链接同一个 `libduck_ear.so`；
+  代码不复制，随时可以在“同进程”和“独立进程”之间切换。
+
+不建议让 `libduck_audio.so` 直接依赖 `libduck_ear.so`：
+
+- 所有链接 `libduck_audio` 的节点都会被动继承 ONNX Runtime 和模型路径依赖；
+- 没有麦克风/模型的机器人也必须带上这些依赖；
+- 将来抽成独立包时，链接关系和安装布局都要改。
+
+注意：**同一个 `.so` 不等于故障隔离**。ONNX 推理异常可以被捕获，但段错误仍会带走整个
+`duck_audio` 进程；如果麦克风/模型是可选且必须保证声音和运动不受影响，独立
+`duck_ear_node` 更稳。默认同进程适合减少节点数；是否拆应按实测 CPU/延迟和稳定性决定。
+
 ### 6.4 什么时候拆回独立 `audio_capture`
 
 采集与 `audio_io` 的拆分条件、接口稳定性说明已迁移到：
