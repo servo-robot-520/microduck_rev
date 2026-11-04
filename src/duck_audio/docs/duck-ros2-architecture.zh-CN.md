@@ -148,8 +148,7 @@ src/duck_audio/
 
 ### 3.1 组合式节点与两个 CMake target
 
-`DuckAudioNode` **不继承** `rclcpp::Node`，而是持有调用方传入的 `rclcpp::Node::SharedPtr`，与
-`battery_monitor` 的组合方式一致：
+`DuckAudioNode` **不继承** `rclcpp::Node`，而是持有调用方传入的 `rclcpp::Node::SharedPtr`
 
 ```cpp
 auto node = std::make_shared<rclcpp::Node>("duck_audio");
@@ -425,7 +424,7 @@ ros2 launch duck_audio duck_audio.launch.py \
 
 ---
 
-## 9. 构建与部署
+## 9. 构建
 
 ### 9.1 依赖
 
@@ -447,19 +446,6 @@ ros2 launch duck_audio duck_audio.launch.py \
 - `libduck_audio.so` 的 `$ORIGIN` 找同目录的 `libmicroduck_sounds.so`；节点 `$ORIGIN/..` 找 `libduck_audio.so`。
 - 交叉编译 aarch64 时传 `--target aarch64-unknown-linux-gnu` 和 linker 环境变量；详见 FFI 文档。
 - 允许 `DUCK_AUDIO_USE_PREBUILT_RUST=ON`，从 `lib/` 找预编译库；CI 与板端可以分开构建。
-
-### 9.3 部署
-
-```text
-/opt/robot/...
-  lib/libduck_audio.so
-  lib/libmicroduck_sounds.so
-  lib/duck_audio/duck_audio_node
-  share/duck_audio/config/duck_audio.yaml
-~/.config/duck_ros2/sounds/...
-```
-
-`audio_io` 与 `duck_audio` 是两个 systemd 服务；`duck_audio` 在 `audio_io` 之后启动，但不强依赖（`audio_io` 不在时只发日志，不崩溃）。
 
 ---
 
