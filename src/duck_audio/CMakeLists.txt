@@ -51,11 +51,13 @@ find_package(tf2_sensor_msgs REQUIRED)
 set(DUCK_RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust")
 set(DUCK_RUST_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/rust-target")
 set(DUCK_RUST_TARGET_TRIPLE "")
+set(DUCK_SOUNDS_BIN "${DUCK_RUST_TARGET_DIR}/release/sounds")
 if (CMAKE_CROSSCOMPILING)
     set(DUCK_RUST_TARGET_TRIPLE "${CMAKE_CXX_COMPILER_TARGET}")
 endif ()
 if (DUCK_RUST_TARGET_TRIPLE)
     set(DUCK_RUST_LIB "${DUCK_RUST_TARGET_DIR}/${DUCK_RUST_TARGET_TRIPLE}/release/libmicroduck_sounds.so")
+    set(DUCK_SOUNDS_BIN "${DUCK_RUST_TARGET_DIR}/${DUCK_RUST_TARGET_TRIPLE}/release/sounds")
 else ()
     set(DUCK_RUST_LIB "${DUCK_RUST_TARGET_DIR}/release/libmicroduck_sounds.so")
 endif ()
@@ -69,15 +71,17 @@ elseif (DUCK_AUDIO_BUILD_RUST)
             "${DUCK_RUST_DIR}/sounds/src/*.rs"
             "${DUCK_RUST_DIR}/robotd-params/src/*.rs"
             "${DUCK_RUST_DIR}/microduck_sounds_ffi/src/*.rs")
+    # 同时构建 FFI 库和原版 sounds CLI：后者就是 ensure-bank 的来源。
     set(DUCK_CARGO_ARGS build --release --locked --manifest-path
-            "${DUCK_RUST_DIR}/Cargo.toml" -p microduck_sounds_ffi)
+            "${DUCK_RUST_DIR}/Cargo.toml" -p microduck_sounds_ffi -p sounds)
     if (DUCK_RUST_TARGET_TRIPLE)
         list(APPEND DUCK_CARGO_ARGS --target "${DUCK_RUST_TARGET_TRIPLE}")
     endif ()
     add_custom_command(
-            OUTPUT "${DUCK_RUST_LIB}"
+            OUTPUT "${DUCK_RUST_LIB}" "${DUCK_SOUNDS_BIN}"
             COMMAND ${CMAKE_COMMAND} -E env
                     "CARGO_TARGET_DIR=${DUCK_RUST_TARGET_DIR}"
+                    "MAKEFLAGS="
                     ${CARGO_EXECUTABLE} ${DUCK_CARGO_ARGS}
             WORKING_DIRECTORY "${DUCK_RUST_DIR}"
             DEPENDS ${DUCK_RUST_SOURCES}
@@ -86,7 +90,7 @@ elseif (DUCK_AUDIO_BUILD_RUST)
                     "${DUCK_RUST_DIR}/UPSTREAM_MICRODUCK_COMMIT"
             COMMENT "Building libmicroduck_sounds with cargo"
             VERBATIM)
-    add_custom_target(duck_audio_rust ALL DEPENDS "${DUCK_RUST_LIB}")
+    add_custom_target(duck_audio_rust ALL DEPENDS "${DUCK_RUST_LIB}" "${DUCK_SOUNDS_BIN}")
     add_library(microduck_sounds SHARED IMPORTED)
     set_target_properties(microduck_sounds PROPERTIES
             IMPORTED_LOCATION "${DUCK_RUST_LIB}"
@@ -223,6 +227,15 @@ if (BUILD_EXE)
 endif ()
 if (TARGET microduck_sounds)
     install(FILES "${DUCK_RUST_LIB}" DESTINATION lib)
+endif ()
+if (DUCK_AUDIO_BUILD_RUST)
+    # 与 ROS 2 节点相同的 lib/<pkg>/ 目录，可用 `ros2 run duck_audio sounds ...`。
+    install(PROGRAMS "${DUCK_SOUNDS_BIN}" DESTINATION lib/${PROJECT_NAME})
+elseif (DUCK_AUDIO_USE_PREBUILT_RUST)
+    find_program(DUCK_SOUNDS_CLI NAMES sounds)
+    if (DUCK_SOUNDS_CLI)
+        install(PROGRAMS "${DUCK_SOUNDS_CLI}" DESTINATION lib/${PROJECT_NAME})
+    endif ()
 endif ()
 install(DIRECTORY include/ DESTINATION include)
 

@@ -5,7 +5,7 @@
 /**:
   ros__parameters:
     voice:
-      # 预渲染音库目录。安装时由 `sounds ensure-bank --dir ...` 生成；节点只校验
+      # 预渲染音库目录。安装时由 `ros2 run duck_audio sounds ensure-bank --dir ...` 生成；节点只校验
       # 目录、WAV 和 `.seed`（内容 "seed:bank_version"），不会在启动时重新渲染。
       # 必须是绝对路径；没有音库时节点仍启动，但 PlayVoice 会明确拒绝。
       bank: /var/lib/robot/sounds

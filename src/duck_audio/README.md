@@ -76,7 +76,16 @@ ros2 launch duck_audio duck_audio.launch.py
 默认配置见 `config/duck_audio.yaml`。音库由安装步骤渲染：
 
 ```bash
-sounds ensure-bank --dir /var/lib/robot/sounds
+ros2 run duck_audio sounds ensure-bank --dir /var/lib/robot/sounds
+```
+
+`duck_audio` 的 CMake 会把原版 Rust `sounds` crate 的 `src/main.rs` 构建成 CLI，并安装到
+`lib/duck_audio/sounds`；因此 `ros2 run duck_audio sounds ...` 是发布版本的用法。没有安装时也可以在
+仓库内直接运行：
+
+```bash
+cargo run --manifest-path src/duck_audio/rust/Cargo.toml -p sounds -- \
+  ensure-bank --dir /var/lib/robot/sounds
 ```
 
 节点只读取并校验音库，不在启动时重新渲染。
