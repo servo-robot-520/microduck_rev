@@ -73,3 +73,6 @@ src/duck_audio/**/target/
 src/duck_audio/**/*.d
 src/duck_audio/**/*.so
 src/duck_audio/**/*.a
+# 本地验证构建产物
+build-check*/
+install-check*/

@@ -1,0 +1,30 @@
+duck_audio:
+  ros__parameters:
+    voice:
+      # 安装时由 `sounds ensure-bank` 渲染；节点只读取并校验，不在启动时重新渲染。
+      bank: /var/lib/robot/sounds
+      # 0 = 自动：优先 .seed，其次硬件 serial，最后本地持久随机值。
+      seed: 0
+      greet: true
+    theremin:
+      enabled: true
+      # depth_image 优先；point_cloud 需要相机 enable_point_cloud=true。
+      input: depth_image
+      depth_topic: /camera/depth/image_raw
+      cloud_topic: /camera/depth/points
+      # 空 = 相机光学系；非空时点云通过 TF 变换到该 frame（深度图不支持 TF）。
+      target_frame: ""
+      near_m: 0.12
+      far_m: 0.70
+      lateral_m: 0.35
+      y_min_m: -0.25
+      y_max_m: 0.20
+      roi_x_frac: 0.60
+      roi_y0_frac: 0.20
+      roi_y1_frac: 0.80
+      min_points: 40
+      bin_m: 0.02
+      hold_ms: 250
+      stale_ms: 200
+      # 鸭子小喇叭的低频截止；0 = 全频。
+      rolloff_hz: 300.0

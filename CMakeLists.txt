@@ -166,5 +166,5 @@ colcon_add_subdirectories(
         battery_monitor
         audio_io
 #        tts
-#        duck_audio
+        duck_audio
 )
