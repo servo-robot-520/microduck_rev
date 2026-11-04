@@ -1,8 +1,10 @@
 #include "duck_audio/voice_runtime.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <system_error>
 
 namespace duck_audio {
 namespace {
@@ -18,14 +20,60 @@ std::string trim(std::string value) {
 
 } // namespace
 
+std::string VoiceRuntime::default_bank_path() {
+    // XDG 优先；没有 XDG 时使用用户配置目录。服务没有 HOME 时退回 /var/lib。
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    if (xdg != nullptr && *xdg != '\0') {
+        return std::string{xdg} + "/duck_ros2/sounds";
+    }
+    const char* home = std::getenv("HOME");
+    if (home != nullptr && *home != '\0') {
+        return std::string{home} + "/.config/duck_ros2/sounds";
+    }
+    return "/var/lib/duck_ros2/sounds";
+}
+
 VoiceRuntime::VoiceRuntime(Config config, rclcpp::Logger logger)
-    : config_(std::move(config)), logger_(logger) {}
+    : config_(std::move(config)), logger_(logger) {
+    if (config_.bank.empty()) {
+        config_.bank = default_bank_path();
+    }
+    config_.bank = resolve_bank_path(std::move(config_.bank));
+}
 
 VoiceRuntime::~VoiceRuntime() {
     if (voice_ != nullptr) {
         duck_voice_free(voice_);
         voice_ = nullptr;
     }
+}
+
+std::string VoiceRuntime::resolve_bank_path(std::string path) const {
+    const auto replace_prefix = [&path](const std::string_view prefix, const std::string_view value) {
+        if (path.rfind(prefix, 0) == 0) {
+            path.replace(0, prefix.size(), value.data(), value.size());
+            return true;
+        }
+        return false;
+    };
+    if (path == "~") {
+        if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+            path = home;
+        } else {
+            path = default_bank_path();
+        }
+    } else if (path.rfind("~/", 0) == 0) {
+        if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+            replace_prefix("~", home);
+        } else {
+            path = default_bank_path();
+        }
+    } else if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+        if (!replace_prefix("${HOME}", home)) {
+            (void)replace_prefix("$HOME", home);
+        }
+    }
+    return std::filesystem::absolute(path).lexically_normal().string();
 }
 
 bool VoiceRuntime::initialize() {
@@ -36,6 +84,12 @@ bool VoiceRuntime::initialize() {
         return false;
     }
     bank_version_ = duck_bank_version();
+
+    // 启动时检查音库；缺失/过期/无 .seed 时自动渲染到同级 staging，再原子替换。
+    if (!ensure_bank()) {
+        has_voice_ = false;
+        return false;
+    }
     if (!scan_bank()) {
         has_voice_ = false;
         return false;
@@ -43,39 +97,24 @@ bool VoiceRuntime::initialize() {
 
     uint32_t marker_seed = 0;
     uint32_t marker_version = 0;
-    const bool has_marker = read_marker(&marker_seed, &marker_version);
-    // 音库版本必须与库的 BANK_VERSION 一致；否则音色/配方已经变了，应重渲染。
-    if (has_marker && marker_version != bank_version_) {
+    if (!read_marker(&marker_seed, &marker_version)) {
+        last_error_ = "voice bank has no valid .seed after generation";
+        RCLCPP_ERROR(logger_, "%s", last_error_.c_str());
+        has_voice_ = false;
+        return false;
+    }
+    if (marker_version != bank_version_) {
         std::ostringstream message;
-        message << "voice bank version " << marker_version << " does not match library " << bank_version_
-                << "; run sounds ensure-bank --force";
+        message << "voice bank version " << marker_version << " does not match library "
+                << bank_version_ << "; run ros2 run duck_audio sounds ensure-bank --force";
         last_error_ = message.str();
         RCLCPP_ERROR(logger_, "%s", last_error_.c_str());
         has_voice_ = false;
         return false;
     }
 
-    // seed 优先级：bench 覆盖 > 音库 .seed > 硬件 serial > 失败。
-    if (config_.seed_override != 0) {
-        seed_ = config_.seed_override;
-        if (has_marker && marker_seed != seed_) {
-            RCLCPP_WARN(logger_, "voice.seed=%u overrides bank seed %u", seed_, marker_seed);
-        }
-    } else if (has_marker) {
-        seed_ = marker_seed;
-    } else {
-        uint32_t hardware = 0;
-        char error[256]{};
-        if (duck_hardware_seed(&hardware, error, sizeof(error)) != DUCK_OK) {
-            last_error_ = std::string{"no bank seed and no hardware seed: "} + error;
-            RCLCPP_ERROR(logger_, "%s", last_error_.c_str());
-            has_voice_ = false;
-            return false;
-        }
-        seed_ = hardware;
-        RCLCPP_WARN(logger_, "voice bank has no .seed; using hardware seed %u", seed_);
-    }
-
+    // seed 优先级：bench 覆盖 > 音库 .seed；ensure_bank 已保证两者一致。
+    seed_ = config_.seed_override != 0 ? config_.seed_override : marker_seed;
     voice_ = duck_voice_new(seed_);
     if (voice_ == nullptr) {
         last_error_ = "duck_voice_new failed";
@@ -87,6 +126,85 @@ bool VoiceRuntime::initialize() {
     last_error_.clear();
     RCLCPP_INFO(logger_, "voice bank %s seed %u bank_version %u", config_.bank.c_str(), seed_,
                 bank_version_);
+    return true;
+}
+
+bool VoiceRuntime::ensure_bank() {
+    std::error_code error;
+    const auto has_wavs = [&]() {
+        std::error_code walk_error;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(
+                     config_.bank, std::filesystem::directory_options::skip_permission_denied,
+                     walk_error)) {
+            if (walk_error) {
+                break;
+            }
+            if (entry.is_regular_file() && entry.path().extension() == ".wav") {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    uint32_t marker_seed = 0;
+    uint32_t marker_version = 0;
+    const bool has_marker = read_marker(&marker_seed, &marker_version);
+    const bool current = has_wavs() && has_marker && marker_version == bank_version_ &&
+                         (config_.seed_override == 0 || marker_seed == config_.seed_override);
+    if (current) {
+        seed_ = config_.seed_override != 0 ? config_.seed_override : marker_seed;
+        return true;
+    }
+
+    // 过期音库保留原 seed 重新渲染；没有 .seed 时才向硬件/本地身份要 seed。
+    uint32_t seed = 0;
+    if (config_.seed_override != 0) {
+        seed = config_.seed_override;
+    } else if (has_marker) {
+        seed = marker_seed;
+    } else {
+        char hardware_error[256]{};
+        if (duck_hardware_seed(&seed, hardware_error, sizeof(hardware_error)) != DUCK_OK) {
+            last_error_ = std::string{"cannot derive a voice seed: "} + hardware_error;
+            RCLCPP_ERROR(logger_, "%s", last_error_.c_str());
+            return false;
+        }
+    }
+
+    const std::filesystem::path bank{config_.bank};
+    const std::filesystem::path staging = std::filesystem::path{bank.string() + ".new"};
+    std::filesystem::remove_all(staging, error);
+    char render_error[512]{};
+    if (duck_render_all(seed, staging.c_str(), render_error, sizeof(render_error)) != DUCK_OK) {
+        last_error_ = std::string{"cannot render voice bank: "} + render_error;
+        RCLCPP_ERROR(logger_, "%s", last_error_.c_str());
+        std::filesystem::remove_all(staging, error);
+        return false;
+    }
+    {
+        std::ofstream marker(staging / ".seed", std::ios::trunc);
+        marker << seed << ':' << bank_version_;
+        if (!marker) {
+            last_error_ = "cannot write voice bank marker";
+            RCLCPP_ERROR(logger_, "%s", last_error_.c_str());
+            std::filesystem::remove_all(staging, error);
+            return false;
+        }
+    }
+
+    // staging 与 bank 同级，rename 是原子的；先删旧目录，避免半旧半新。
+    std::filesystem::remove_all(bank, error);
+    std::filesystem::create_directories(bank.parent_path(), error);
+    std::filesystem::rename(staging, bank, error);
+    if (error) {
+        last_error_ = "cannot install voice bank at " + config_.bank + ": " + error.message();
+        RCLCPP_ERROR(logger_, "%s", last_error_.c_str());
+        std::filesystem::remove_all(staging, error);
+        return false;
+    }
+    seed_ = seed;
+    RCLCPP_INFO(logger_, "rendered voice bank %s seed %u bank_version %u", config_.bank.c_str(),
+                seed, bank_version_);
     return true;
 }
 

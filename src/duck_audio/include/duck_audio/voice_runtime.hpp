@@ -14,11 +14,15 @@ namespace duck_audio {
 class VoiceRuntime {
 public:
     struct Config {
-        std::string bank;          ///< /var/lib/robot/sounds
+        std::string bank;          ///< 默认 ~/.config/duck_ros2/sounds，可含 ~/$HOME
         uint32_t seed_override{0}; ///< 非 0 时覆盖 .seed，bench 用
     };
 
     VoiceRuntime(Config config, rclcpp::Logger logger);
+
+    /// 默认音库目录：$XDG_CONFIG_HOME/duck_ros2/sounds，否则 $HOME/.config/duck_ros2/sounds；
+    /// 两者都没有时用 /var/lib/duck_ros2/sounds 作为服务兜底。
+    [[nodiscard]] static std::string default_bank_path();
     /// 释放 DuckVoice 句柄；不删除音库文件。
     ~VoiceRuntime();
 
@@ -38,9 +42,14 @@ public:
 
 private:
     /// 检查 bank 目录存在且至少有一个 WAV。
+    /// 检查 bank 目录存在且至少有一个 WAV。
     [[nodiscard]] bool scan_bank();
     /// 读取 .seed 的 "seed:bank_version"；不存在/损坏返回 false。
     [[nodiscard]] bool read_marker(uint32_t* seed, uint32_t* version) const;
+    /// 解析 `~`/`$HOME` 并转成绝对路径。
+    [[nodiscard]] std::string resolve_bank_path(std::string path) const;
+    /// 缺失、无 WAV、无 .seed 或版本不匹配时，用 FFI 渲染到 staging 后原子替换。
+    [[nodiscard]] bool ensure_bank();
 
     Config config_;
     rclcpp::Logger logger_;

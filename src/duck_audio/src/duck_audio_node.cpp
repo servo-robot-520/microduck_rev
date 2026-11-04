@@ -39,7 +39,8 @@ DuckAudioNode::DuckAudioNode(rclcpp::Node::SharedPtr node) : node_(std::move(nod
 
     // 音库先于各模块初始化：没有音库时后面全部走“拒绝但不崩溃”的分支。
     VoiceRuntime::Config runtime_config;
-    runtime_config.bank = parameter<std::string>(node_, "voice.bank", "/var/lib/robot/sounds");
+    runtime_config.bank =
+            parameter<std::string>(node_, "voice.bank", VoiceRuntime::default_bank_path());
     runtime_config.seed_override =
             static_cast<uint32_t>(parameter<int>(node_, "voice.seed", 0));
     runtime_ = std::make_unique<VoiceRuntime>(runtime_config, node_->get_logger());

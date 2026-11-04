@@ -73,22 +73,28 @@ ros2 launch orbbec_camera gemini_330_series.launch.py \
 ros2 launch duck_audio duck_audio.launch.py
 ```
 
-默认配置见 `config/duck_audio.yaml`。音库由安装步骤渲染：
+默认音库目录是 `~/.config/duck_ros2/sounds`。节点启动时会检查：
+
+- 目录/至少一个 WAV；
+- `.seed` 中的 `seed:bank_version`；
+- `.seed` 版本是否等于库的 `BANK_VERSION`。
+
+缺失、无 WAV、无 `.seed` 或版本不匹配时，节点自动用当前 seed 渲染到同级 `*.new`，写标记后
+原子替换；只有无法推导 seed、目录不可写或渲染失败时才保持 `has_voice=false`。
+
+`duck_audio` 的 CMake 也会把原版 Rust `sounds` crate 的 `src/main.rs` 构建成 CLI，并安装到
+`lib/duck_audio/sounds`；需要手动重渲染时：
 
 ```bash
-ros2 run duck_audio sounds ensure-bank --dir /var/lib/robot/sounds
+ros2 run duck_audio sounds ensure-bank --dir ~/.config/duck_ros2/sounds --force
 ```
 
-`duck_audio` 的 CMake 会把原版 Rust `sounds` crate 的 `src/main.rs` 构建成 CLI，并安装到
-`lib/duck_audio/sounds`；因此 `ros2 run duck_audio sounds ...` 是发布版本的用法。没有安装时也可以在
-仓库内直接运行：
+没有安装时也可以在仓库内直接运行：
 
 ```bash
 cargo run --manifest-path src/duck_audio/rust/Cargo.toml -p sounds -- \
-  ensure-bank --dir /var/lib/robot/sounds
+  ensure-bank --dir ~/.config/duck_ros2/sounds
 ```
-
-节点只读取并校验音库，不在启动时重新渲染。
 
 ## 接口
 
