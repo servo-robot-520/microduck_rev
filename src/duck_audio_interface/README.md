@@ -17,8 +17,8 @@
 | `~/voice/state` | `msg/VoiceState` | 音库、seed、状态、最近错误 |
 | `~/theremin/enable` | `srv/SetTheremin` | 启停特雷门 |
 | `~/theremin/state` | `msg/ThereminState` | 距离、closeness、音高、嘴、传感器状态 |
-| `~/chorale/enable` | `srv/SetChorale` | 启停合唱、选择曲目 |
-| `~/chorale/state` | `msg/ChoraleState` | 声部、beat、人数 |
+| `~/chorale/enable` | `srv/SetChorale` | 启停合唱、选择曲目（接口保留，当前 `duck_audio` 暂不广告） |
+| `~/chorale/state` | `msg/ChoraleState` | 声部、beat、人数（接口保留，当前不发布） |
 
 `wheee` 不放进 `PlayVoice`：它需要持续按住和松手落地，用 `WheeeHold` 表达电平，而不是
 一次服务调用。
@@ -32,8 +32,9 @@ ros2 service call /duck_audio/voice/play \
 ros2 service call /duck_audio/theremin/enable \
   duck_audio_interface/srv/SetTheremin "{active: true}"
 
-ros2 service call /duck_audio/chorale/enable \
-  duck_audio_interface/srv/SetChorale "{active: true, piece: 1}"
+# 合唱接口保留，当前 duck_audio 不广告 ~/chorale/enable。
+# ros2 service call /duck_audio/chorale/enable \
+#   duck_audio_interface/srv/SetChorale "{active: true, piece: 1}"
 
 ros2 topic echo /duck_audio/voice/state
 ros2 topic echo /duck_audio/theremin/state
