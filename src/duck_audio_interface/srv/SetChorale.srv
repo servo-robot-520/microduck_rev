@@ -1,0 +1,9 @@
+# 启用/停用合唱。
+# piece 为 0 表示使用默认曲目；非 0 时必须在该构建的曲目注册表中。
+
+bool active
+uint8 piece
+
+---
+bool accepted
+string reason

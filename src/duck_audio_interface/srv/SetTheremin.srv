@@ -1,0 +1,8 @@
+# 启用/停用特雷门。
+# 启用前节点会检查音库、seed 和深度输入；不满足时返回 accepted=false。
+
+bool active
+
+---
+bool accepted
+string reason

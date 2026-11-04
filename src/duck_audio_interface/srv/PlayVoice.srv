@@ -1,0 +1,17 @@
+# 播放一个一次性语义声音。
+# 允许的 tag：alarm、greet、inquire、peck、chirp、coo。
+# wheee 不使用本服务；用 ~/voice/wheee_hold 的电平信号。
+string tag
+
+# 变体编号；0xFFFFFFFF 表示由节点随机选择。
+uint32 variant
+
+---
+# 是否接受。false 时 reason 说明原因（无音库、未知 tag、正在直播等）。
+bool accepted
+
+# 本次请求标识；为空时由节点生成，用于状态/日志关联。
+string request_id
+
+# 拒绝或失败原因；接受时为空。
+string reason
