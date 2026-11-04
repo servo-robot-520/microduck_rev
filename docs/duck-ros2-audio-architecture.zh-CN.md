@@ -158,17 +158,30 @@ flowchart TB
 
 ## 6. 麦克风与 `duck_ear`
 
+**当前状态：`audio_io` 的采集侧已实现；`duck_ear` 尚未实现。** 因此现在 `/audio_io/capture`
+只会发布 PCM，`duck_audio` 不会自动识别摸头，也不会自动播放 `coo` 或执行动作。
+
 ### 6.1 `audio_io` 采集侧
 
 `audio_io` 在同一个节点中同时持有 playback 和 capture 两个 `snd_pcm_t`，发布 `~/capture`。采集参数、声道语义、设备恢复和验证命令详见：
 
 **[`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)**
 
-**注意：只合并 I/O，不合并处理。** ONNX 推理、VAD、降噪都不进 `audio_io`；规划中的 `duck_ear` 订阅 `~/capture` 做处理。
+**注意：只合并 I/O，不合并处理。** ONNX 推理、VAD、降噪都不进 `audio_io`；它们应放在独立的 `duck_ear`（或行为节点）中。
 
-### 6.2 `duck_ear`（规划）
+### 6.2 `duck_ear`（尚未实现）
 
-- 订阅 `/audio_io/capture`；
+需要它把麦克风数据变成事件。推荐链路：
+
+```mermaid
+flowchart LR
+  AIO["/audio_io<br/>~/capture<br/>AudioStream 48k mono"] --> EAR["duck_ear<br/>resample 16k + log-mel + CNN"]
+  EAR -->|"~/petting Start/End"| AUD["duck_audio<br/>PlayVoice(coo)"]
+  EAR -->|"~/petting / ~/sound_event"| BEH["行为/控制节点<br/>执行动作"]
+  BEH --> CTRL["duck_control / controller_manager"]
+```
+
+- 订阅 `/audio_io/capture`（`AudioStream`，`stream_id=mic`）；
 - 重采样到 16 kHz mono；
 - 1 s 窗口、512 FFT、25 ms 窗、10 ms hop、40 mel、log；
 - 输入 `[1, 1, 40, 100]` 到 20 KB CNN；
@@ -179,9 +192,26 @@ flowchart TB
 
 麦克风没有单独的 `AudioCapture` 消息：`~/capture` 复用 `AudioStream`，建议 `stream_id = "mic"`，`eos=true` 表示停止采集；采集健康由 `AudioState.capture_ok/capture_error` 和 `AudioEvent` 的设备事件表达。
 
-`duck_audio` 的 voice 模块订阅 `/duck/ear/petting`，在“未摔倒、无脚本动作”时播 `coo`。
+当前 `duck_audio` **没有**订阅 `~/petting`；需要声音反馈时，由 `duck_audio` 增加一个
+`PettingEvent` 订阅，在“未摔倒、无脚本动作”时调用 `PlayVoice(coo)`。需要运动反馈时，应由
+行为/控制节点订阅同一个事件并调用控制层动作，而不是让 `duck_audio` 直接写舵机。
 
-### 6.3 什么时候拆回独立 `audio_capture`
+原版 `pet-detect` 在摸头开始时只触发 `coo`，并没有额外的运动动作；如果要“摸头后做特定动作”，
+这是新增行为，需要单独定义动作语义、超时和与安全/脚本动作的互斥。
+
+### 6.3 处理放在哪里
+
+| 层 | 负责 | 不负责 |
+|---|---|---|
+| `audio_io` | 打开麦克风、48 kHz PCM、`~/capture`、设备恢复 | 重采样、VAD、mel、CNN、动作 |
+| `duck_ear` | 16 kHz 重采样、窗口、log-mel、CNN、滞回、`petting`/`sound_event` | 声卡、动作 |
+| `duck_audio` | `coo` 等语义声音、嘴部目标 | 麦克风、CNN、运动 |
+| 行为/控制节点 | 把 `petting` 映射成动作，处理安全/互斥/超时 | 音频解码、音库 |
+
+采集健康看 `audio_io` 的 `~/state`（`capture_ok`/`capture_error`）和 `~/event`；`duck_ear` 只处理
+“有数据”之后的逻辑。
+
+### 6.4 什么时候拆回独立 `audio_capture`
 
 采集与 `audio_io` 的拆分条件、接口稳定性说明已迁移到：
 
