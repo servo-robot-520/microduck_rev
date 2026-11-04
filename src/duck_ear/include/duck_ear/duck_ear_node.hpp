@@ -13,7 +13,7 @@ namespace duck_ear {
 
 /// duck_ear 的组合式节点：持有调用方传入的 rclcpp::Node，不继承它。
 ///
-/// 订阅 /audio_io/capture，重采样到 16 kHz，调用 pet-detect，发布 ~/petting。
+/// 订阅 /audio_io/capture，重采样到 16 kHz，调用 pet-detect，发布 ~/petting/event。
 /// 动作不在本节点执行；行为/控制节点订阅事件后自行处理。
 class DuckEarNode {
 public:
