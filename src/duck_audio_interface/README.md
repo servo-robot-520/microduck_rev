@@ -1,8 +1,8 @@
 # duck_audio_interface
 
-`duck_audio` 的 ROS 2 语义接口。它只定义消息/服务，不实现节点，也不依赖 `audio_io`。
+## 简介
 
-## 为什么单独一个包
+`duck_audio` 的 ROS 2 语义接口。它只定义消息/服务，不实现节点，也不依赖 `audio_io`。
 
 `audio_io_interface` 是通用音频层，不应该知道 `chirp`、`coo`、`wheee`、seed 或声部。
 `duck_audio_interface` 让 App、`robotctl`、行为节点通过语义名字请求声音，而不是依赖
