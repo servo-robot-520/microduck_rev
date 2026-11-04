@@ -1,30 +1,89 @@
-duck_audio:
+# duck_audio 的参数。
+#
+# 顶层 `/**` 让同一份文件在带 namespace 启动时也能匹配；参数名与 DuckAudioNode 中
+# 声明的 `voice.*` / `theremin.*` 完全对应。节点只读取参数，不在运行中热加载。
+/**:
   ros__parameters:
     voice:
-      # 安装时由 `sounds ensure-bank` 渲染；节点只读取并校验，不在启动时重新渲染。
+      # 预渲染音库目录。安装时由 `sounds ensure-bank --dir ...` 生成；节点只校验
+      # 目录、WAV 和 `.seed`（内容 "seed:bank_version"），不会在启动时重新渲染。
+      # 必须是绝对路径；没有音库时节点仍启动，但 PlayVoice 会明确拒绝。
       bank: /var/lib/robot/sounds
-      # 0 = 自动：优先 .seed，其次硬件 serial，最后本地持久随机值。
+
+      # 声音 seed。0 = 自动：
+      #   1) 优先使用音库 `.seed` 中的 seed；
+      #   2) 没有 `.seed` 时读取硬件 SoC serial；
+      #   3) 没有硬件 serial 时使用本地持久随机值。
+      # 非 0 会覆盖 `.seed`，只建议在 bench/回放时使用；换 seed 等于换一只鸭子的音色。
       seed: 0
+
+      # 启动时播放一次 greet。无音库时自动跳过；它是无头板上的“节点已启动”提示。
       greet: true
+
     theremin:
+      # 是否创建特雷门模块及其深度订阅。false 时 `~/theremin/enable` 仍存在，
+      # 但会返回 accepted=false，reason 为 disabled by parameter；也不会占用音频通道。
       enabled: true
-      # depth_image 优先；point_cloud 需要相机 enable_point_cloud=true。
+
+      # 输入类型：
+      #   depth_image  = sensor_msgs/Image，16UC1，单位毫米；默认、CPU 开销更低。
+      #   point_cloud  = sensor_msgs/PointCloud2，XYZ，单位米；需要相机开启点云。
+      # 非法值会被节点警告并回退到 depth_image。
       input: depth_image
+
+      # 仅 input=depth_image 时使用。Orbbec 默认发布该话题，QoS 建议 sensor_data。
       depth_topic: /camera/depth/image_raw
+
+      # 仅 input=point_cloud 时使用。相机 launch 需要 enable_point_cloud:=true；
+      # 可选 ordered_pc:=false 去除无效点，point_cloud_qos:=sensor_data。
       cloud_topic: /camera/depth/points
-      # 空 = 相机光学系；非空时点云通过 TF 变换到该 frame（深度图不支持 TF）。
+
+      # 点云目标坐标系。空 = 直接使用相机光学系（x 右、y 下、z 前）。
+      # 非空时点云通过 TF 变换到该 frame；TF 失败会丢弃本帧并令 sensor_ok=false。
+      # 深度图输入不使用 TF，始终按相机光学系处理。
       target_frame: ""
+
+      # 可玩距离范围，单位米，必须满足 near_m < far_m。
+      # 低于 near_m 的点视为机身/近距噪声；高于 far_m 的点不产生音符。
       near_m: 0.12
       far_m: 0.70
+
+      # 仅点云：左右裁剪半宽，单位米（|x| <= lateral_m）。用于去掉视场边缘和机身。
+      # 深度图改用 roi_x_frac，不读这一项。
       lateral_m: 0.35
+
+      # 仅点云：上下裁剪范围，单位米。光学系 y 向下，正值是更低的位置；
+      # 用它排除地面和头顶。深度图改用 roi_y0_frac/roi_y1_frac。
       y_min_m: -0.25
       y_max_m: 0.20
+
+      # 仅深度图：水平 ROI 占全宽的比例，居中裁剪。0.60 = 取中间 60%，左右各去 20%。
+      # 取值 0..1；太大容易把手边背景算进来，太小可能裁掉手。
       roi_x_frac: 0.60
+
+      # 仅深度图：垂直 ROI 的起止行比例，0.20..0.80 表示从 20% 行到 80% 行。
+      # 必须满足 0 <= roi_y0_frac < roi_y1_frac <= 1；用于排除顶部背景和底部地面。
       roi_y0_frac: 0.20
       roi_y1_frac: 0.80
+
+      # 一个深度簇的最小支撑点数/像素数。点云和深度图都以“点”为单位。
+      # 太小会把飞点当手；太大则远处的手（像素少）会消失。默认 40 适合 640×480
+      # 深度图的中等 ROI；点云可适当增减。
       min_points: 40
+
+      # 深度直方图 bin 宽，单位米。默认 0.02 = 2 cm：
+      # 更小更精细但容易把一只手拆成多个 bin；更大更稳但邻近的手/墙更难分开。
       bin_m: 0.02
+
+      # 深度丢帧保持时间，单位毫秒。最后一帧有效手在该窗口内继续发声，
+      # 避免 15 Hz 传感器闪烁切碎音符；手真的离开时最多拖尾这么久。
       hold_ms: 250
+
+      # 输入 watchdog，单位毫秒。超过该时间没有新深度帧就认为传感器失效：
+      # sensor_ok=false、level 回到 0、嘴闭合；应大于相机帧周期（15 Hz ≈ 67 ms）。
       stale_ms: 200
-      # 鸭子小喇叭的低频截止；0 = 全频。
+
+      # 播放扬声器的低频截止，单位 Hz。0 或负数 = 全频，不补偿。
+      # 大于 0 时 Stream 把低于该频率的谐波能量搬到扬声器能发出的频段；
+      # 鸭子的小喇叭实测约 300 Hz，所以默认 300。不要在桌面全频音箱上使用该值。
       rolloff_hz: 300.0
