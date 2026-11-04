@@ -46,3 +46,16 @@ ros2 topic echo /duck_audio/theremin/state
 ```bash
 colcon build --base-paths src --packages-select duck_audio_interface
 ```
+
+## C++ / Python 辅助
+
+- `include/duck_audio_interface/ros_msg.hpp`：节点私有 endpoint 常量、外部绝对名称 helper、生成类型别名。
+- `python/duck_audio_interface_msg/ros_msg.py`：同一组 endpoint 名称 helper，供 Python 客户端使用。
+- `cmake_include.cmake`：供 CLion 源码聚合构建直接使用 in-tree typesupport target。
+
+```cpp
+#include "duck_audio_interface/ros_msg.hpp"
+
+auto play = duck_audio_interface::service_play_voice("/robot_a/duck_audio");
+auto state = duck_audio_interface::topic_voice_state();
+```
