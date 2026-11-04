@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <string>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -10,54 +9,53 @@
 #include "duck_audio/voice_module.hpp"
 #include "duck_audio/voice_runtime.hpp"
 #include "duck_audio/wheee_player.hpp"
-#include "duck_audio_interface/msg/voice_state.hpp"
-#include "duck_audio_interface/msg/wheee_hold.hpp"
-#include "duck_audio_interface/srv/play_voice.hpp"
-#include "duck_audio_interface/srv/set_theremin.hpp"
+#include "duck_audio_interface/ros_msg.hpp"
 
 namespace duck_audio {
 
-/// duck_audio 的组合式节点：内部持有调用方传入的 rclcpp::Node，不继承它。
-///
-/// 其他功能包可以把自己的节点传进来，共享同一个执行器：
-/// @code
-/// auto node = std::make_shared<rclcpp::Node>("duck_audio");
-/// auto audio = std::make_shared<duck_audio::DuckAudioNode>(node);
-/// @endcode
-///
-/// 合唱暂未实现；`SetChorale` 服务不会被广告。
-class DuckAudioNode {
-public:
-    /// 在传入节点上声明参数、创建 service/topic/timer；构造期间完成音库校验。
-    explicit DuckAudioNode(rclcpp::Node::SharedPtr node);
-    /// 先停特雷门和 wheee，再释放各模块与 Rust 句柄。
-    ~DuckAudioNode();
+    /// duck_audio 的组合式节点：内部持有调用方传入的 rclcpp::Node，不继承它。
+    ///
+    /// 其他功能包可以把自己的节点传进来，共享同一个执行器：
+    /// @code
+    /// auto node = std::make_shared<rclcpp::Node>("duck_audio");
+    /// auto audio = std::make_shared<duck_audio::DuckAudioNode>(node);
+    /// @endcode
+    ///
+    /// 合唱暂未实现；`SetChorale` 服务不会被广告。
+    class DuckAudioNode {
+    public:
+        /// 在传入节点上声明参数、创建 service/topic/timer；构造期间完成音库校验。
+        explicit DuckAudioNode(rclcpp::Node::SharedPtr node);
+        /// 先停特雷门和 wheee，再释放各模块与 Rust 句柄。
+        ~DuckAudioNode();
 
-    DuckAudioNode(const DuckAudioNode&) = delete;
-    DuckAudioNode& operator=(const DuckAudioNode&) = delete;
-    DuckAudioNode(DuckAudioNode&&) = delete;
-    DuckAudioNode& operator=(DuckAudioNode&&) = delete;
+        DuckAudioNode(const DuckAudioNode&) = delete;
+        DuckAudioNode& operator=(const DuckAudioNode&) = delete;
+        DuckAudioNode(DuckAudioNode&&) = delete;
+        DuckAudioNode& operator=(DuckAudioNode&&) = delete;
 
-    /// 调用方用于 add_node/spin 的节点句柄。
-    [[nodiscard]] const rclcpp::Node::SharedPtr& node() const noexcept { return node_; }
+        /// 调用方用于 add_node/spin 的节点句柄。
+        [[nodiscard]] const rclcpp::Node::SharedPtr& node() const noexcept {
+            return node_;
+        }
 
 private:
     /// 50 Hz：推进 wheee lease 与特雷门控制。
-    void tick();
+    void tick() const;
     /// 发布 transient_local 的 VoiceState 快照。
-    void publish_state();
-    void handle_play_voice(std::shared_ptr<duck_audio_interface::srv::PlayVoice::Request> request,
-                           std::shared_ptr<duck_audio_interface::srv::PlayVoice::Response> response);
+    void publish_state() const;
+    void handle_play_voice(const std::shared_ptr<duck_audio_interface::srv::PlayVoice::Request>& request,
+                           const std::shared_ptr<duck_audio_interface::srv::PlayVoice::Response>& response) const;
     void handle_set_theremin(
-            std::shared_ptr<duck_audio_interface::srv::SetTheremin::Request> request,
-            std::shared_ptr<duck_audio_interface::srv::SetTheremin::Response> response);
+            const std::shared_ptr<duck_audio_interface::srv::SetTheremin::Request>& request,
+            const std::shared_ptr<duck_audio_interface::srv::SetTheremin::Response>& response) const;
 
-    rclcpp::Node::SharedPtr node_; ///< 组合持有，不继承。
-    AudioSession session_;        ///< 一次性/wheee/特雷门互斥。
-    std::unique_ptr<VoiceRuntime> runtime_;
-    std::unique_ptr<VoiceModule> voice_;
-    std::unique_ptr<WheeePlayer> wheee_;
-    std::unique_ptr<ThereminModule> theremin_;
+        rclcpp::Node::SharedPtr node_;
+        AudioSession session_; ///< 一次性/wheee/特雷门互斥。
+        std::unique_ptr<VoiceRuntime> runtime_;
+        std::unique_ptr<VoiceModule> voice_;
+        std::unique_ptr<WheeePlayer> wheee_;
+        std::unique_ptr<ThereminModule> theremin_;
 
     rclcpp::CallbackGroup::SharedPtr theremin_group_;
     rclcpp::Service<duck_audio_interface::srv::PlayVoice>::SharedPtr play_service_;

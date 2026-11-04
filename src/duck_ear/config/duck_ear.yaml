@@ -1,7 +1,5 @@
-duck_ear:
+/**:
   ros__parameters:
-    # audio_io 采集侧发布的话题；不要在这里直接打开 ALSA。
-    capture_topic: /audio_io/capture
     # audio_io 的采集流 id；空字符串表示接受任意流。
     stream_id: mic
     # 空 = 使用 share/duck_ear/models/pet_detect.onnx。

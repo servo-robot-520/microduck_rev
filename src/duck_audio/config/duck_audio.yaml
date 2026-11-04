@@ -1,7 +1,3 @@
-# duck_audio 的参数。
-#
-# 顶层 `/**` 让同一份文件在带 namespace 启动时也能匹配；参数名与 DuckAudioNode 中
-# 声明的 `voice.*` / `theremin.*` 完全对应。节点只读取参数，不在运行中热加载。
 /**:
   ros__parameters:
     voice:

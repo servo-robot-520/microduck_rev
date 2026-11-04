@@ -4,7 +4,7 @@
   <name>duck_ear</name>
   <version>0.1.0</version>
   <description>麦克风摸头/环境声感知：订阅 audio_io capture，重采样、log-mel、CNN，发布 PettingEvent</description>
-  <maintainer email="mdmbct@163.com">greenhand520</maintainer>
+  <maintainer email="ohmdmbct@gmail.com">greenhand520</maintainer>
   <license>GPL-3.0-only</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

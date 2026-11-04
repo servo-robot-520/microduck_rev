@@ -21,30 +21,6 @@
 `ort` 的 `load-dynamic` 加载 ONNX Runtime；**运行时需要目标机上有 `libonnxruntime.so`**。
 没有该库或模型时，节点会记录错误并保持运行，只是不发布摸头事件。
 
-## 目录
-
-```text
-duck_ear/
-├── include/duck_ear/
-│   ├── duck_ear_node.hpp
-│   ├── ear_processor.hpp
-│   ├── linear_resampler.hpp
-│   └── ffi/duck_ear_ffi.h
-├── src/
-│   ├── duck_ear_node.cpp
-│   ├── ear_processor.cpp
-│   ├── linear_resampler.cpp
-│   └── main.cpp
-├── rust/
-│   ├── pet-detect/          # 原版 crate 的固定副本
-│   ├── duck_ear_ffi/        # C ABI 静态库
-│   └── Cargo.lock
-├── models/pet_detect.onnx   # 20 KB CNN
-├── config/duck_ear.yaml
-├── launch/duck_ear.launch.py
-└── test/test_linear_resampler.cpp
-```
-
 ## 构建
 
 ```bash

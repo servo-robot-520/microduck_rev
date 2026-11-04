@@ -9,7 +9,7 @@ namespace duck_audio {
 StreamPublisher::StreamPublisher(rclcpp::Node& node, std::string stream_id)
     : node_(node), stream_id_(std::move(stream_id)) {
     // 与 audio_io 的 ~/stream 订阅匹配：best_effort、只保留最新两块。
-    auto qos = rclcpp::QoS(rclcpp::KeepLast(2)).best_effort();
+    const auto qos = rclcpp::QoS(rclcpp::KeepLast(2)).best_effort();
     publisher_ = node_.create_publisher<audio_io_interface::msg::AudioStream>(
             audio_io_interface::topic_stream(), qos);
 }
@@ -42,7 +42,7 @@ void StreamPublisher::publish_impl(const int16_t* samples, const std::size_t fra
         std::scoped_lock lock(mutex_);
         message.sequence = sequence_++;
     }
-    publisher_->publish(std::move(message));
+    publisher_->publish(message);
 }
 
 } // namespace duck_audio
