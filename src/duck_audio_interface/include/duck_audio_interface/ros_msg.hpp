@@ -1,14 +1,13 @@
 #pragma once
 
-#include <algorithm>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 
 #include "duck_audio_interface/msg/chorale_state.hpp"
+#include "duck_audio_interface/msg/petting_event.hpp"
 #include "duck_audio_interface/msg/theremin_state.hpp"
 #include "duck_audio_interface/msg/voice_state.hpp"
-#include "duck_audio_interface/msg/petting_event.hpp"
 #include "duck_audio_interface/msg/wheee_hold.hpp"
 #include "duck_audio_interface/srv/play_voice.hpp"
 #include "duck_audio_interface/srv/set_chorale.hpp"
@@ -36,8 +35,8 @@ namespace duck_audio_interface {
 
         /// 校验节点全名：必须是非根绝对名称，不能包含 ASCII 空白或中间的空路径段。
         inline void require_node_fqn(const std::string_view raw_node_fqn) {
-            const auto node_fqn = trim_trailing_slashes(raw_node_fqn);
-            if (node_fqn.empty() || node_fqn.front() != '/' || node_fqn == "/" ||
+            if (const auto node_fqn = trim_trailing_slashes(raw_node_fqn);
+                node_fqn.empty() || node_fqn.front() != '/' || node_fqn == "/" ||
                 node_fqn.find("//") != std::string_view::npos ||
                 node_fqn.find_first_of(" \t\n\r\v\f") != std::string_view::npos) {
                 throw std::invalid_argument(
@@ -71,48 +70,54 @@ namespace duck_audio_interface {
     inline constexpr std::string_view kPrivateServiceSetChorale = "~/chorale/enable";
     inline constexpr std::string_view kPrivateTopicChoraleState = "~/chorale/state";
     inline constexpr std::string_view kPrivateTopicMouth = "~/mouth";
+    inline constexpr std::string_view kPrivatePettingEvent = "~/petting/event";
 
     /// 外部消费者使用的绝对服务名称。
     /// @param node_fqn duck_audio 节点全名，默认 /duck_audio
     [[nodiscard]] inline std::string service_play_voice(
-            const std::string_view node_fqn = detail::kDefaultNodeFqn) {
+        const std::string_view node_fqn = detail::kDefaultNodeFqn) {
         return detail::endpoint_name(node_fqn, "voice/play");
     }
 
     [[nodiscard]] inline std::string service_set_theremin(
-            const std::string_view node_fqn = detail::kDefaultNodeFqn) {
+        const std::string_view node_fqn = detail::kDefaultNodeFqn) {
         return detail::endpoint_name(node_fqn, "theremin/enable");
     }
 
     [[nodiscard]] inline std::string service_set_chorale(
-            const std::string_view node_fqn = detail::kDefaultNodeFqn) {
+        const std::string_view node_fqn = detail::kDefaultNodeFqn) {
         return detail::endpoint_name(node_fqn, "chorale/enable");
     }
 
     /// 外部消费者使用的绝对话题名称。
     [[nodiscard]] inline std::string topic_wheee_hold(
-            const std::string_view node_fqn = detail::kDefaultNodeFqn) {
+        const std::string_view node_fqn = detail::kDefaultNodeFqn) {
         return detail::endpoint_name(node_fqn, "voice/wheee_hold");
     }
 
     [[nodiscard]] inline std::string topic_voice_state(
-            const std::string_view node_fqn = detail::kDefaultNodeFqn) {
+        const std::string_view node_fqn = detail::kDefaultNodeFqn) {
         return detail::endpoint_name(node_fqn, "voice/state");
     }
 
     [[nodiscard]] inline std::string topic_theremin_state(
-            const std::string_view node_fqn = detail::kDefaultNodeFqn) {
+        const std::string_view node_fqn = detail::kDefaultNodeFqn) {
         return detail::endpoint_name(node_fqn, "theremin/state");
     }
 
     [[nodiscard]] inline std::string topic_chorale_state(
-            const std::string_view node_fqn = detail::kDefaultNodeFqn) {
+        const std::string_view node_fqn = detail::kDefaultNodeFqn) {
         return detail::endpoint_name(node_fqn, "chorale/state");
     }
 
     [[nodiscard]] inline std::string topic_mouth(
-            const std::string_view node_fqn = detail::kDefaultNodeFqn) {
+        const std::string_view node_fqn = detail::kDefaultNodeFqn) {
         return detail::endpoint_name(node_fqn, "mouth");
+    }
+
+    [[nodiscard]] inline std::string topic_petting_event(
+        const std::string_view node_fqn = detail::kDefaultNodeFqn) {
+        return detail::endpoint_name(node_fqn, "petting/event");
     }
 
     // 与生成消息/服务名称一致的简洁类型别名。

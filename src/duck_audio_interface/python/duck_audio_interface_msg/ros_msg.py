@@ -13,6 +13,7 @@ PRIVATE_TOPIC_THEREMIN_STATE = "~/theremin/state"
 PRIVATE_SERVICE_SET_CHORALE = "~/chorale/enable"
 PRIVATE_TOPIC_CHORALE_STATE = "~/chorale/state"
 PRIVATE_TOPIC_MOUTH = "~/mouth"
+PRIVATE_TOPIC_PETTING_EVENT = "~/petting/event"
 
 _ASCII_WHITESPACE = " \t\n\r\v\f"
 
@@ -76,6 +77,11 @@ def topic_chorale_state(node_fqn: str = DEFAULT_NODE_FQN) -> str:
 def topic_mouth(node_fqn: str = DEFAULT_NODE_FQN) -> str:
     """返回嘴部目标话题的绝对名称。"""
     return _endpoint_name(node_fqn, "mouth")
+
+
+def topic_petting_event(node_fqn: str = DEFAULT_NODE_FQN) -> str:
+    """返回摸头事件的绝对名称。"""
+    return _endpoint_name(node_fqn, "petting/event")
 
 
 __all__ = [
