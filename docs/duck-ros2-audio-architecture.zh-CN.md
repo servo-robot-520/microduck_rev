@@ -2,7 +2,7 @@
 
 > 对象：`microduck_rev`（ROS 2 Humble，C++23，`ament_cmake`）。
 > 依据：`pollen-robotics/microduck` 的 `sounds`、`robotd/src/sound.rs`、`theremin`、`chorale`、`pet-detect`，以及当前开发板的实测结果。
-> 状态：`audio_io`、`audio_io_interface`、`duck_audio`（voice/wheee/特雷门）、`duck_audio_interface` 已实现；TTS、`duck_ear` 仍为设计，合唱暂不实现。
+> 状态：`audio_io`、`audio_io_interface`、`duck_audio`（voice/wheee/特雷门）、`duck_audio_interface`、`duck_ear` 已实现；TTS 仍为设计，合唱暂不实现。`duck_ear` 运行时需要 ONNX Runtime。
 > `audio_io` 详细架构：[`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)
 > 约定：节点名用 `snake_case`；话题/服务/动作名相对于节点私有命名空间书写，例如 `~/play`。
 
@@ -100,7 +100,7 @@ flowchart TB
 | 通用消息 | `audio_io_interface` | — | — | 是 |
 | 通用 TTS（规划） | `robot_audio_tts` | `tts_node` | `/audio/tts` | 是 |
 | 鸭子音频（已实现 voice/wheee/特雷门） | `duck_audio` | `duck_audio_node` | `/duck_audio` | 否 |
-| 鸭子耳朵（规划） | `duck_ear` | `duck_ear_node` | `/duck/ear` | 否 |
+| 鸭子耳朵（已实现） | `duck_ear` | `duck_ear_node` | `/duck/ear` | 否 |
 | 鸭子音频消息（已实现） | `duck_audio_interface` | — | — | 否 |
 
 命名规则：
@@ -158,8 +158,10 @@ flowchart TB
 
 ## 6. 麦克风与 `duck_ear`
 
-**当前状态：`audio_io` 的采集侧已实现；`duck_ear` 尚未实现。** 因此现在 `/audio_io/capture`
-只会发布 PCM，`duck_audio` 不会自动识别摸头，也不会自动播放 `coo` 或执行动作。
+**当前状态：`audio_io` 的采集侧和 `duck_ear` 都已实现。** `duck_ear` 订阅
+`/audio_io/capture`，重采样、提取 log-mel、运行 pet-detect CNN，并发布
+`duck_audio_interface/PettingEvent`。但 `duck_audio` **还没有订阅该事件**，所以不会自动播放
+`coo`；动作也不会自动执行，需要行为/控制节点消费事件。
 
 ### 6.1 `audio_io` 采集侧
 
@@ -169,7 +171,7 @@ flowchart TB
 
 **注意：只合并 I/O，不合并处理。** ONNX 推理、VAD、降噪都不进 `audio_io`；它们应放在独立的 `duck_ear`（或行为节点）中。
 
-### 6.2 `duck_ear`（尚未实现）
+### 6.2 `duck_ear`（已实现）
 
 需要它把麦克风数据变成事件。推荐链路：
 
@@ -187,14 +189,15 @@ flowchart LR
 - 输入 `[1, 1, 40, 100]` 到 20 KB CNN；
 - 滞回：enter ≥ 0.95，exit < 0.85；
 - 默认 stride ≈ 250 ms；
-- 发布 `~/petting`（`std_msgs/Bool` 或 `duck_audio_interface/PettingEvent`）；
-- 同时发布 `~/sound_event`（`Noise` / `Voice`，当前仅诊断）。
+- 发布 `~/petting`（`duck_audio_interface/PettingEvent`，Start/End + confidence）；
+- 环境声 `sound_event` 暂未发布。
 
 麦克风没有单独的 `AudioCapture` 消息：`~/capture` 复用 `AudioStream`，建议 `stream_id = "mic"`，`eos=true` 表示停止采集；采集健康由 `AudioState.capture_ok/capture_error` 和 `AudioEvent` 的设备事件表达。
 
-当前 `duck_audio` **没有**订阅 `~/petting`；需要声音反馈时，由 `duck_audio` 增加一个
-`PettingEvent` 订阅，在“未摔倒、无脚本动作”时调用 `PlayVoice(coo)`。需要运动反馈时，应由
-行为/控制节点订阅同一个事件并调用控制层动作，而不是让 `duck_audio` 直接写舵机。
+`duck_ear` 已发布 `~/petting`；当前 `duck_audio` **没有**订阅它。需要声音反馈时，由
+`duck_audio` 增加一个 `PettingEvent` 订阅，在“未摔倒、无脚本动作”时调用 `PlayVoice(coo)`。
+需要运动反馈时，应由行为/控制节点订阅同一个事件并调用控制层动作，而不是让 `duck_audio`
+直接写舵机。
 
 原版 `pet-detect` 在摸头开始时只触发 `coo`，并没有额外的运动动作；如果要“摸头后做特定动作”，
 这是新增行为，需要单独定义动作语义、超时和与安全/脚本动作的互斥。
@@ -211,27 +214,19 @@ flowchart LR
 采集健康看 `audio_io` 的 `~/state`（`capture_ok`/`capture_error`）和 `~/event`；`duck_ear` 只处理
 “有数据”之后的逻辑。
 
-### 6.3.1 放在 `duck_audio` 包内，还是单独节点？
+### 6.3.1 库与进程边界
 
-推荐折中：**库拆开，进程默认不拆。**
+最终采用独立 `duck_ear` 包：
 
-- 在 `duck_audio` 包内增加独立 target `libduck_ear.so`，承载重采样、log-mel、CNN 和
-  `petting`/`sound_event` 事件；
-- **不要**让 `libduck_audio.so` 引用 `libduck_ear.so`；由 `duck_audio_node` 按
-  `ear.enabled` 组合 `EarModule` 并链接 `duck_ear`。默认仍是一个 `duck_audio` 进程，
-  `audio_io` 仍是另一个进程；
-- 需要故障隔离时，增加一个很薄的 `duck_ear_node`，链接同一个 `libduck_ear.so`；
-  代码不复制，随时可以在“同进程”和“独立进程”之间切换。
+- `libduck_ear.so` 承载重采样、log-mel、CNN 和 `PettingEvent` 发布；
+- `duck_ear_node` 只做 ROS 组合与生命周期，默认独立进程；
+- `libduck_audio.so` **不依赖** `libduck_ear.so`，音频消费者不会被动继承 ONNX Runtime；
+- 需要把 ear 合进 `duck_audio` 时，可复用 `libduck_ear.so` 的 `EarProcessor` 组合，
+  但默认进程布局保持 `audio_io` + `duck_audio` + `duck_ear` 三个。
 
-不建议让 `libduck_audio.so` 直接依赖 `libduck_ear.so`：
-
-- 所有链接 `libduck_audio` 的节点都会被动继承 ONNX Runtime 和模型路径依赖；
-- 没有麦克风/模型的机器人也必须带上这些依赖；
-- 将来抽成独立包时，链接关系和安装布局都要改。
-
-注意：**同一个 `.so` 不等于故障隔离**。ONNX 推理异常可以被捕获，但段错误仍会带走整个
-`duck_audio` 进程；如果麦克风/模型是可选且必须保证声音和运动不受影响，独立
-`duck_ear_node` 更稳。默认同进程适合减少节点数；是否拆应按实测 CPU/延迟和稳定性决定。
+`.so` 只是代码边界，不是故障隔离；独立 `duck_ear_node` 才是进程隔离。`duck_ear` 运行时需要
+ONNX Runtime 和 `models/pet_detect.onnx`；没有模型/运行库时节点记录错误并保持运行，只是不发布
+摸头事件。
 
 ### 6.4 什么时候拆回独立 `audio_capture`
 
@@ -426,9 +421,10 @@ src/
     tools/
 
   duck_ear/
-    src/duck_ear_node.cpp
-    src/mel.cpp
-    src/classifier.cpp
+    include/duck_ear/{duck_ear_node,ear_processor,linear_resampler}.hpp
+    src/{duck_ear_node,ear_processor,linear_resampler,main}.cpp
+    rust/{pet-detect,duck_ear_ffi}
+    models/pet_detect.onnx
     config/duck_ear.yaml
     launch/duck_ear.launch.py
 ```
@@ -444,7 +440,7 @@ src/
 后续包（规划）：
 
 1. `tts_node` 的 `~/synthesize`、`~/text`、`~/say` 可用。
-2. `duck_ear` 在麦克风上检测摸头并触发 `coo`。
+2. `duck_ear` 在麦克风上检测摸头并发布 `PettingEvent`；`coo`/动作消费待接。
 3. `duck_audio` 的 voice/wheee/特雷门可用，且单模块失败不影响其他模块；合唱暂不实现。
 4. `duck_audio` 默认节点为 `/duck_audio`，`~/voice`、`~/theremin` 接口可用。
 
@@ -456,7 +452,7 @@ src/
 2. **`audio_io` launch 集成（已完成）**：默认 `/audio_io`；支持外部 `config` 与可选 `namespace`。
 3. **`duck_audio` 的 voice/wheee 模块（已完成）**：播放预渲染音库；启动 greet；`wheee` 用 `AudioStream`。
 4. **`tts_node`**：先 `synthesize` service + `text` topic，Piper/eSpeak；再接 `say` action。
-5. **`audio_io` capture + `duck_ear`**：采集已完成；`duck_ear` 摸头检测待实现。
+5. **`audio_io` capture + `duck_ear`**：采集与摸头检测已完成；声音/动作消费待接。
 6. **`duck_audio` 的 theremin（已完成）/ chorale（待实现）**：特雷门按 `~/theremin/enable` 开启；合唱接口保留，当前节点不广告。
 7. **AIC3104 板级适配**：overlay/DKMS 或换 USB 声卡；再切回机器人内置扬声器/麦克风。
 

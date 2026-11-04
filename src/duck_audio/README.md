@@ -156,7 +156,7 @@ colcon test-result --verbose
 ## 已知限制
 
 - 合唱未实现；节点不广告合唱服务/状态。
-- 摸头触发 `coo` 依赖后续 `duck_ear`；当前可由外部 `PlayVoice` 请求。
+- `duck_ear` 已实现并发布 `PettingEvent`；`duck_audio` 尚未订阅，摸头 `coo` 仍需外部接入。
 - `wheee` 三段 WAV 缺失时拒绝启动 wheee，不做一次性降级。
 - 深度图输入不支持 TF；点云可通过 `theremin.target_frame` 变换。
 - 相机/音频设备是可选设备；失败只影响声音，不影响运动控制。
