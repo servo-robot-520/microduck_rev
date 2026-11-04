@@ -18,6 +18,7 @@ uint32_t read_u32(const std::uint8_t* data) {
 
 } // namespace
 
+// 最小 RIFF 走查：只读 fmt/data，忽略 LIST 等 chunk；所有长度都做边界检查。
 std::optional<WavPcm> WavPcmReader::read(const std::filesystem::path& path, std::string* error) {
     std::ifstream input(path, std::ios::binary);
     if (!input) {
@@ -63,6 +64,7 @@ std::optional<WavPcm> WavPcmReader::read(const std::filesystem::path& path, std:
             }
             have_format = true;
         } else if (std::memcmp(chunk, "data", 4) == 0) {
+            // 保留原始 S16LE 字节；AudioStream 直接按字节发送，不做二次量化。
             wav.data.assign(bytes.begin() + static_cast<std::ptrdiff_t>(body),
                             bytes.begin() + static_cast<std::ptrdiff_t>(body + length));
             have_data = true;
@@ -70,6 +72,7 @@ std::optional<WavPcm> WavPcmReader::read(const std::filesystem::path& path, std:
         at = body + length + (length & 1U);
     }
 
+    // 音库/流格式固定；其他格式宁可拒绝，也不在播放线程做隐式重采样。
     if (!have_format || !have_data || wav.channels != 1 || wav.bits_per_sample != 16 ||
         wav.sample_rate != 48000) {
         if (error != nullptr) {

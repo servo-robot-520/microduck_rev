@@ -28,7 +28,9 @@ namespace duck_audio {
 /// 合唱暂未实现；`SetChorale` 服务不会被广告。
 class DuckAudioNode {
 public:
+    /// 在传入节点上声明参数、创建 service/topic/timer；构造期间完成音库校验。
     explicit DuckAudioNode(rclcpp::Node::SharedPtr node);
+    /// 先停特雷门和 wheee，再释放各模块与 Rust 句柄。
     ~DuckAudioNode();
 
     DuckAudioNode(const DuckAudioNode&) = delete;
@@ -36,10 +38,13 @@ public:
     DuckAudioNode(DuckAudioNode&&) = delete;
     DuckAudioNode& operator=(DuckAudioNode&&) = delete;
 
+    /// 调用方用于 add_node/spin 的节点句柄。
     [[nodiscard]] const rclcpp::Node::SharedPtr& node() const noexcept { return node_; }
 
 private:
+    /// 50 Hz：推进 wheee lease 与特雷门控制。
     void tick();
+    /// 发布 transient_local 的 VoiceState 快照。
     void publish_state();
     void handle_play_voice(std::shared_ptr<duck_audio_interface::srv::PlayVoice::Request> request,
                            std::shared_ptr<duck_audio_interface::srv::PlayVoice::Response> response);
@@ -47,8 +52,8 @@ private:
             std::shared_ptr<duck_audio_interface::srv::SetTheremin::Request> request,
             std::shared_ptr<duck_audio_interface::srv::SetTheremin::Response> response);
 
-    rclcpp::Node::SharedPtr node_;
-    AudioSession session_;
+    rclcpp::Node::SharedPtr node_; ///< 组合持有，不继承。
+    AudioSession session_;        ///< 一次性/wheee/特雷门互斥。
     std::unique_ptr<VoiceRuntime> runtime_;
     std::unique_ptr<VoiceModule> voice_;
     std::unique_ptr<WheeePlayer> wheee_;

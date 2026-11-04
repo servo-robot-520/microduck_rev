@@ -15,10 +15,12 @@ namespace duck_audio {
 GeminiHandSource::GeminiHandSource(rclcpp::Node& node, Config config,
                                    rclcpp::CallbackGroup::SharedPtr callback_group)
     : node_(node), config_(std::move(config)), tracker_(config_.hand) {
+    // 只有需要点云 target_frame 时才创建 TF；深度图始终按相机光学系解释。
     if (!config_.target_frame.empty()) {
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node_.get_clock());
         tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
     }
+    // 传感器流只保留最新一帧；深度/点云都不需要补发历史。
     const auto qos = rclcpp::SensorDataQoS().keep_last(1);
     rclcpp::SubscriptionOptions options;
     options.callback_group = std::move(callback_group);
@@ -81,6 +83,7 @@ void GeminiHandSource::on_depth(const sensor_msgs::msg::Image::ConstSharedPtr& m
         store(std::nullopt, std::chrono::steady_clock::now());
         return;
     }
+    // 深度图是 16UC1，Orbbec 发布前已乘 depth_scale，Y16 下即毫米。
     const int x0 = static_cast<int>(static_cast<double>(message->width) *
                                    (1.0 - config_.hand.roi_x_frac) / 2.0);
     const int x1 = static_cast<int>(message->width) - x0;
@@ -104,6 +107,7 @@ void GeminiHandSource::on_depth(const sensor_msgs::msg::Image::ConstSharedPtr& m
             }
         }
     }
+    // tracker 与 latest/reset 共用 mutex_；解析在锁内完成，临界区只做直方图/排序。
     const auto now = std::chrono::steady_clock::now();
     {
         std::scoped_lock lock(mutex_);
@@ -113,6 +117,7 @@ void GeminiHandSource::on_depth(const sensor_msgs::msg::Image::ConstSharedPtr& m
 }
 
 void GeminiHandSource::on_cloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& message) {
+    // PointCloud2 的 x/y/z 是 float32、单位米；先拒绝截断数据再交给迭代器。
     if (message->point_step < 12 || message->width == 0 || message->height == 0 ||
         message->data.size() <
                 static_cast<std::size_t>(message->row_step) * message->height) {
@@ -122,6 +127,7 @@ void GeminiHandSource::on_cloud(const sensor_msgs::msg::PointCloud2::ConstShared
 
     sensor_msgs::msg::PointCloud2 transformed;
     const sensor_msgs::msg::PointCloud2* cloud = message.get();
+    // 点云可以带 TF；TF 失败只丢本帧并限流告警，不阻塞回调。
     if (!config_.target_frame.empty() && !message->header.frame_id.empty()) {
         try {
             const auto transform = tf_buffer_->lookupTransform(
@@ -139,6 +145,7 @@ void GeminiHandSource::on_cloud(const sensor_msgs::msg::PointCloud2::ConstShared
         }
     }
 
+    // ROI 在点云上是 XYZ 盒：前方 z、左右 x、上下 y；不做背景扣除。
     std::vector<float> depths;
     depths.reserve(std::min<std::size_t>(cloud->width * cloud->height, 200000));
     sensor_msgs::PointCloud2ConstIterator<float> x(*cloud, "x");
@@ -155,6 +162,7 @@ void GeminiHandSource::on_cloud(const sensor_msgs::msg::PointCloud2::ConstShared
         }
         depths.push_back(*z);
     }
+    // tracker 与 latest/reset 共用 mutex_；解析在锁内完成，临界区只做直方图/排序。
     const auto now = std::chrono::steady_clock::now();
     {
         std::scoped_lock lock(mutex_);

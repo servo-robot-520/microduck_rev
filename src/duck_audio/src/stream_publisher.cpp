@@ -8,6 +8,7 @@ namespace duck_audio {
 
 StreamPublisher::StreamPublisher(rclcpp::Node& node, std::string stream_id)
     : node_(node), stream_id_(std::move(stream_id)) {
+    // 与 audio_io 的 ~/stream 订阅匹配：best_effort、只保留最新两块。
     auto qos = rclcpp::QoS(rclcpp::KeepLast(2)).best_effort();
     publisher_ = node_.create_publisher<audio_io_interface::msg::AudioStream>(
             audio_io_interface::topic_stream(), qos);
@@ -27,6 +28,7 @@ void StreamPublisher::publish_impl(const int16_t* samples, const std::size_t fra
     message.header.stamp = node_.now();
     message.header.frame_id = "duck_audio";
     message.stream_id = stream_id_;
+    // 固定格式：AudioStream 的消费端会按这个格式重采样/下混。
     message.encoding = "s16le";
     message.sample_rate = 48000;
     message.channels = 1;
@@ -36,6 +38,7 @@ void StreamPublisher::publish_impl(const int16_t* samples, const std::size_t fra
         std::memcpy(message.data.data(), samples, message.data.size());
     }
     {
+        // sequence 递增，audio_io 可发现丢包/乱序；每个消息块都要有新序号。
         std::scoped_lock lock(mutex_);
         message.sequence = sequence_++;
     }

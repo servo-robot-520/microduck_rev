@@ -8,6 +8,7 @@
 namespace duck_audio {
 namespace {
 
+// 组合节点可能已经被调用方声明过参数；先 has_parameter 再 declare，避免重复声明异常。
 template <typename T>
 T parameter(const rclcpp::Node::SharedPtr& node, const std::string& name, const T& fallback) {
     if (!node->has_parameter(name)) {
@@ -16,6 +17,7 @@ T parameter(const rclcpp::Node::SharedPtr& node, const std::string& name, const 
     return node->get_parameter(name).get_value<T>();
 }
 
+// VoiceState.state 只暴露稳定字符串，客户端不需要知道 C++ enum。
 std::string owner_name(const AudioOwner owner) {
     switch (owner) {
         case AudioOwner::Wheee:
@@ -35,6 +37,7 @@ DuckAudioNode::DuckAudioNode(rclcpp::Node::SharedPtr node) : node_(std::move(nod
         throw std::invalid_argument("DuckAudioNode requires a non-null node");
     }
 
+    // 音库先于各模块初始化：没有音库时后面全部走“拒绝但不崩溃”的分支。
     VoiceRuntime::Config runtime_config;
     runtime_config.bank = parameter<std::string>(node_, "voice.bank", "/var/lib/robot/sounds");
     runtime_config.seed_override =
@@ -45,6 +48,7 @@ DuckAudioNode::DuckAudioNode(rclcpp::Node::SharedPtr node) : node_(std::move(nod
     voice_ = std::make_unique<VoiceModule>(*node_, *runtime_, session_);
     wheee_ = std::make_unique<WheeePlayer>(*node_, *runtime_, session_);
 
+    // 深度回调放在独立 group，避免解析大点云时阻塞 service/voice 回调。
     theremin_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
     if (parameter<bool>(node_, "theremin.enabled", true)) {
         GeminiHandSource::Config source;
@@ -79,6 +83,7 @@ DuckAudioNode::DuckAudioNode(rclcpp::Node::SharedPtr node) : node_(std::move(nod
         RCLCPP_INFO(node_->get_logger(), "theremin disabled by parameter");
     }
 
+    // 一次性声音与特雷门共用默认 callback group，保证 AudioSession 的检查/切换串行。
     play_service_ = node_->create_service<duck_audio_interface::srv::PlayVoice>(
             "~/voice/play",
             [this](std::shared_ptr<duck_audio_interface::srv::PlayVoice::Request> request,
@@ -100,12 +105,14 @@ DuckAudioNode::DuckAudioNode(rclcpp::Node::SharedPtr node) : node_(std::move(nod
                 }
             });
 
+    // transient_local：晚到的客户端也能立即拿到当前音库/seed/状态。
     state_publisher_ = node_->create_publisher<duck_audio_interface::msg::VoiceState>(
             "~/voice/state", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
     tick_timer_ = node_->create_wall_timer(std::chrono::milliseconds(20), [this] { tick(); });
     state_timer_ =
             node_->create_wall_timer(std::chrono::milliseconds(100), [this] { publish_state(); });
 
+    // greet 是启动提示；失败只影响声音，不影响节点继续运行。
     if (runtime_->has_voice() && parameter<bool>(node_, "voice.greet", true)) {
         (void)voice_->play("greet", 0xFFFFFFFFU);
     }
@@ -113,6 +120,7 @@ DuckAudioNode::DuckAudioNode(rclcpp::Node::SharedPtr node) : node_(std::move(nod
 }
 
 DuckAudioNode::~DuckAudioNode() {
+    // 先停线程，再释放模块和 Rust 句柄；Node 仍存活，writer 还能安全发布 eos。
     if (theremin_ != nullptr) {
         theremin_->stop();
     }
@@ -125,6 +133,7 @@ DuckAudioNode::~DuckAudioNode() {
     runtime_.reset();
 }
 
+// 50 Hz：wheee 先处理 lease/落地，再让特雷门更新参数和状态。
 void DuckAudioNode::tick() {
     if (wheee_ != nullptr) {
         wheee_->tick();
@@ -135,6 +144,7 @@ void DuckAudioNode::tick() {
 }
 
 void DuckAudioNode::publish_state() {
+    // 状态是快照，不读取任何可能阻塞的音频线程状态。
     duck_audio_interface::msg::VoiceState state;
     state.header.stamp = node_->now();
     state.header.frame_id = "duck_audio";
@@ -156,6 +166,7 @@ void DuckAudioNode::handle_play_voice(
         response->reason = "this robot has no voice bank";
         return;
     }
+    // 一次性音效；wheee 由 ~/voice/wheee_hold 处理，不经过该服务。
     const auto result = voice_->play(request->tag, request->variant);
     response->accepted = result.accepted;
     response->request_id = result.request_id;

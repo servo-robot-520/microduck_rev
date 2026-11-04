@@ -10,9 +10,11 @@
 namespace duck_audio {
 namespace {
 
+// 10 ms 一块：audio_io 的 stream timeout 是 200 ms，留足调度余量。
 constexpr std::size_t kChunkFrames = 480; // 10 ms @ 48 kHz
 constexpr auto kChunkPeriod = std::chrono::milliseconds(10);
 
+// 用 u64 bits 传 double，避免 std::atomic<double> 在部分 ARM 上不是 lock-free。
 uint64_t bits(const double value) {
     uint64_t result = 0;
     std::memcpy(&result, &value, sizeof(result));
@@ -38,6 +40,7 @@ ThereminModule::ThereminModule(rclcpp::Node& node, VoiceRuntime& runtime, AudioS
       source_(node, std::move(source_config), std::move(callback_group)),
       publisher_(node, "theremin"),
       rolloff_hz_(rolloff_hz) {
+    // 状态用 transient_local；嘴部目标用普通 reliable 小消息。
     state_publisher_ = node_.create_publisher<duck_audio_interface::msg::ThereminState>(
             "~/theremin/state", rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
     mouth_publisher_ = node_.create_publisher<std_msgs::msg::Float64>(
@@ -51,6 +54,7 @@ ThereminModule::~ThereminModule() {
 }
 
 ThereminModule::Result ThereminModule::enable(const bool desired) {
+    // 停用：把 level/open 目标清零，让 writer 用 Stream 的 slew 淡出，再 join。
     if (!desired) {
         {
             std::scoped_lock lock(mutex_);
@@ -78,6 +82,7 @@ ThereminModule::Result ThereminModule::enable(const bool desired) {
         return Result{true, {}};
     }
 
+    // 启用前必须同时满足：有音库、深度帧新鲜、没有其他实时流占用。
     std::scoped_lock lock(mutex_);
     if (active_.load()) {
         return Result{true, {}};
@@ -91,6 +96,7 @@ ThereminModule::Result ThereminModule::enable(const bool desired) {
     if (!session_.try_acquire(AudioOwner::Theremin)) {
         return Result{false, "another live voice stream owns the audio channel"};
     }
+    // 特雷门复用 wheee 的软化音色；variant 固定为 0，保证每次拿起是同一件乐器。
     DuckStream* stream = duck_stream_new_wheee(runtime_.voice(), 0);
     if (stream == nullptr) {
         session_.release(AudioOwner::Theremin);
@@ -112,6 +118,7 @@ bool ThereminModule::healthy() const {
 }
 
 void ThereminModule::tick() {
+    // 50 Hz 只写目标值；真正的 100 Hz 合成在 run()。
     if (!active_.load()) {
         return;
     }
@@ -119,6 +126,7 @@ void ThereminModule::tick() {
     const bool sensor_ok = source_.healthy(now);
     const auto hand = sensor_ok ? source_.latest(now) : std::nullopt;
     if (hand.has_value()) {
+        // closeness 是一个手势的三个输出：音高、嘴、电平。
         last_hz_ = duck_hz_at(runtime_.voice(), hand->closeness);
         hz_bits_ = bits(last_hz_);
         level_bits_ = bits(1.0);
@@ -151,6 +159,7 @@ void ThereminModule::stop() {
 }
 
 void ThereminModule::run() {
+    // writer 独占 stream_ 的 set/block；停用时靠 active=false + is_silent 退出。
     std::array<float, kChunkFrames> block{};
     std::array<int16_t, kChunkFrames> pcm{};
     auto deadline = std::chrono::steady_clock::now();
@@ -175,12 +184,14 @@ void ThereminModule::run() {
             pcm[i] = static_cast<int16_t>(std::lround(clamped * 32767.0F));
         }
         publisher_.publish(pcm.data(), pcm.size(), false);
+        // 目标 level 已为 0 且 slew 走到静音后再退出，避免硬切。
         if (!active_.load() && duck_stream_is_silent(stream) != 0) {
             break;
         }
         deadline += kChunkPeriod;
         std::this_thread::sleep_until(deadline);
     }
+    // 结束时发 eos，让 audio_io 立即释放该 stream，而不是等 200 ms timeout。
     publisher_.publish_eos();
 }
 

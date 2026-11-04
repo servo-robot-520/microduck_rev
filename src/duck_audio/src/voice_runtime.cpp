@@ -29,6 +29,7 @@ VoiceRuntime::~VoiceRuntime() {
 }
 
 bool VoiceRuntime::initialize() {
+    // ABI 不匹配是打包错误：拒绝实时声音，而不是用错位的结构体。
     if (duck_abi_version() != MICRODUCK_SOUNDS_ABI_VERSION) {
         last_error_ = "libmicroduck_sounds ABI mismatch";
         RCLCPP_ERROR(logger_, "%s", last_error_.c_str());
@@ -43,6 +44,7 @@ bool VoiceRuntime::initialize() {
     uint32_t marker_seed = 0;
     uint32_t marker_version = 0;
     const bool has_marker = read_marker(&marker_seed, &marker_version);
+    // 音库版本必须与库的 BANK_VERSION 一致；否则音色/配方已经变了，应重渲染。
     if (has_marker && marker_version != bank_version_) {
         std::ostringstream message;
         message << "voice bank version " << marker_version << " does not match library " << bank_version_
@@ -53,6 +55,7 @@ bool VoiceRuntime::initialize() {
         return false;
     }
 
+    // seed 优先级：bench 覆盖 > 音库 .seed > 硬件 serial > 失败。
     if (config_.seed_override != 0) {
         seed_ = config_.seed_override;
         if (has_marker && marker_seed != seed_) {
@@ -100,6 +103,7 @@ bool VoiceRuntime::scan_bank() {
         return false;
     }
     std::size_t wavs = 0;
+    // 只要求至少一个 WAV；具体 tag 缺失由 VoiceModule 播放时拒绝。
     for (const auto& entry : std::filesystem::recursive_directory_iterator(
                  config_.bank, std::filesystem::directory_options::skip_permission_denied, error)) {
         if (error) {
@@ -126,6 +130,7 @@ bool VoiceRuntime::read_marker(uint32_t* seed, uint32_t* version) const {
         return false;
     }
     std::string text;
+    // 标记格式固定为 "seed:bank_version"；损坏时按无标记处理，让硬件 seed 兜底。
     std::getline(input, text);
     text = trim(text);
     const auto colon = text.find(':');

@@ -23,6 +23,7 @@ WheeePlayer::~WheeePlayer() {
 }
 
 void WheeePlayer::on_hold(const bool held) {
+    // 特雷门优先：乐器在手里时忽略扳机；否则 held=true 启动/刷新 lease。
     std::scoped_lock lock(mutex_);
     if (!runtime_.has_voice()) {
         return;
@@ -53,9 +54,11 @@ void WheeePlayer::on_hold(const bool held) {
     finished_ = false;
     hold_ = true;
     running_ = true;
+    // 三段音频 move 进 writer；之后 player 不再访问它们，避免数据竞争。
     thread_ = std::thread([this, segments = std::move(segments)]() mutable {
         // 三段音频只属于 writer 线程；start 之后 player 不会再访问它们。
         publish_paced(segments.start);
+        // 按住期间重复 loop；松手或 stop 后写 end，保证有落地段。
         while (hold_.load() && running_.load()) {
             publish_paced(segments.loop);
         }
@@ -71,6 +74,7 @@ void WheeePlayer::tick() {
         if (!running_.load()) {
             return;
         }
+        // 300 ms 没有新 hold=true 视为客户端掉线：落地而不是永远循环。
         if (hold_.load() && std::chrono::steady_clock::now() - last_hold_ > kHoldTimeout) {
             hold_ = false;
         }
@@ -103,6 +107,7 @@ void WheeePlayer::stop() {
     finished_ = false;
 }
 
+// 按 10 ms 块发送，并用 steady_clock 控制节奏，避免 DDS/pipe 累积。
 void WheeePlayer::publish_paced(const WavPcm& segment) {
     const std::size_t total = segment.frames();
     auto deadline = std::chrono::steady_clock::now();
@@ -141,6 +146,7 @@ bool WheeePlayer::load_segments(Segments* segments, std::string* error) const {
     const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto& start_path = starts[static_cast<std::size_t>(now) % starts.size()];
     const std::string filename = start_path.filename().string();
+    // 文件名 wheee_start_<letter>.wav → 同一 letter 的 loop/end。
     const std::string letter = filename.substr(std::string{"wheee_start_"}.size(),
                                                filename.size() - std::string{"wheee_start_"}.size() -
                                                        std::string{".wav"}.size());

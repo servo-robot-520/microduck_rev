@@ -10,6 +10,7 @@
 namespace duck_audio {
 namespace {
 
+// PlayVoice 只接受一次性 tag；wheee 是电平，不走该服务。
 bool is_one_shot(const std::string& tag) {
     return tag == "alarm" || tag == "greet" || tag == "inquire" || tag == "peck" ||
            tag == "chirp" || tag == "coo";
@@ -40,6 +41,7 @@ VoiceModule::PlayResult VoiceModule::play(const std::string& tag, const uint32_t
         return reject(std::move(error));
     }
 
+    // request_id 用于状态/日志关联；counter_ 只在 service 回调里递增。
     const std::string request_id = tag + "-" + std::to_string(++counter_);
     audio_io_interface::msg::AudioClip clip;
     clip.header.stamp = node_.now();
@@ -50,6 +52,8 @@ VoiceModule::PlayResult VoiceModule::play(const std::string& tag, const uint32_t
     clip.gain = 1.0F;
     clip.loop = false;
     clip.group = "voice";
+    // 语义 tag 映射为 audio_io 的焦点策略：
+    // alert 抢断；ambient（coo）排队；greet 只替换同组；其余交互音效抢占。
     if (tag == "peck" || tag == "alarm") {
         clip.priority = audio_io_interface::msg::AudioClip::PRIORITY_ALERT;
         clip.policy = audio_io_interface::msg::AudioClip::POLICY_PREEMPT;
@@ -100,7 +104,9 @@ std::string VoiceModule::choose_wav(const std::string& tag, const uint32_t varia
         return {};
     }
     std::sort(files.begin(), files.end());
+    // 排序保证目录遍历顺序不会改变 variant 的含义；变异只在同一 seed 内。
     std::size_t index = 0;
+    // 0xFFFFFFFF = 随机变体；其他值按排序后的文件名取模。
     if (variant == 0xFFFFFFFFU) {
         const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
         index = static_cast<std::size_t>(now) % files.size();
