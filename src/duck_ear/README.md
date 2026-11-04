@@ -6,6 +6,8 @@
 **本节点不做动作。** 摸头后的声音反馈由 `duck_audio` 消费事件；运动动作由行为/控制节点消费，
 不直接写舵机。
 
+详细架构见 [`docs/duck-ros2-ear-architecture.zh-CN.md`](docs/duck-ros2-ear-architecture.zh-CN.md)。
+
 ## 当前实现
 
 | 项 | 状态 |
@@ -13,7 +15,7 @@
 | `/audio_io/capture` 订阅 | 已实现 |
 | 48 kHz / 任意采样率 → 16 kHz mono | 已实现，线性重采样，跨块连续 |
 | pet-detect log-mel + CNN | 复用原版 Rust `pet-detect`，模型 `models/pet_detect.onnx` |
-| `~/petting` `PettingEvent` | 已实现（Start/End + confidence） |
+| `~/petting/event` `PettingEvent` | 已实现（Start/End + confidence） |
 | 环境声 `SoundEvent` | 暂未发布 |
 | 动作控制 | 不在本节点；由行为/控制节点消费事件 |
 
@@ -56,7 +58,7 @@ encoding   s16le
 输出：
 
 ```bash
-ros2 topic echo /duck_ear/petting
+ros2 topic echo /duck_ear/petting/event
 ```
 
 消息：
@@ -81,7 +83,7 @@ colcon test-result --verbose
 ## 消费关系
 
 ```text
-/audio_io/capture → duck_ear → /duck_ear/petting
+/audio_io/capture → duck_ear → /duck_ear/petting/event
                                ├→ duck_audio: 播 coo（可选）
                                └→ 行为/控制节点: 特定动作（可选）
 ```

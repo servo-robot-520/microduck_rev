@@ -2,7 +2,7 @@
 
 > 对象：`microduck_rev`（ROS 2 Humble，C++23，`ament_cmake`）。
 > 依据：`pollen-robotics/microduck` 的 `sounds`、`robotd/src/sound.rs`、`theremin`、`chorale`、`pet-detect`，以及当前开发板的实测结果。
-> 状态：`audio_io`、`audio_io_interface`、`duck_audio`（voice/wheee/特雷门）、`duck_audio_interface`、`duck_ear` 已实现；TTS 仍为设计，合唱暂不实现。`duck_ear` 运行时需要 ONNX Runtime。
+> 状态：`audio_io`、`audio_io_interface`、`duck_audio`（voice/wheee/特雷门）、`duck_audio_interface`、`duck_ear`、`tts_interface`、`tts`（piper/paroli）已实现；合唱暂不实现。`duck_ear` 运行时需要 ONNX Runtime，`paroli` 后端需要 paroli-server。
 > `audio_io` 详细架构：[`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)
 > 约定：节点名用 `snake_case`；话题/服务/动作名相对于节点私有命名空间书写，例如 `~/play`。
 
@@ -13,7 +13,7 @@
 声音系统拆成三层：
 
 1. **通用音频 I/O 层**：`audio_io` 功能包（库 + `audio_io_node`）独占播放和采集设备，负责 WAV/MP3 解码、混音、优先级、抢占和 PCM 流。
-2. **通用 TTS 层**：规划中的 `tts_node` 负责文字 → 音频，提供 service/topic/action，不碰声卡。
+2. **通用 TTS 层**：`tts_node` 负责文字 → 音频，提供 service/topic/action，不碰声卡。
 3. **microduck 语义层**：`duck_audio` 一个节点承载 `voice`、`wheee`、`theremin`；合唱暂不实现；`duck_ear` 独立负责摸头检测。
 
 三条硬约束：
@@ -30,7 +30,7 @@
 
 - 播放预渲染音库（`alarm/greet/inquire/peck/chirp/coo/wheee`）。
 - 播放音频文件（当前实现：WAV/MP3），支持循环、增益、起始偏移；FLAC/OGG 为后续扩展。
-- 播放实时 PCM 流（特雷门、流式 TTS；合唱暂不实现）。
+- 播放实时 PCM 流（特雷门）；流式 TTS 尚未实现。
 - TTS：文字 → 音频；service 只合成，topic/action 合成并播放。
 - 麦克风采集、摸头检测、环境声事件。
 - 优先级、抢占、排队、同组替换、混音/ducking。
@@ -39,7 +39,7 @@
 ### 1.2 非目标
 
 - **不做语音识别（ASR）、唤醒词、对话理解**。`pet-detect` 只判断“是否在摸头”，环境声 `Voice` 只是 RMS 包络事件。
-- **不做云 TTS 强依赖**。云端 backend 可选，离线 Piper/eSpeak 是默认路径。
+- **不做云 TTS 强依赖**。当前只有离线 `piper`/`paroli` 后端；eSpeak 与云后端未实现。
 - **不在本节点内做 WebRTC 传输**。`mediad` 未来需要麦克风/扬声器时，通过 `AudioStream` 接入 `audio_io`。
 - **不把声音合成塞进 `ros2_control` 的 update loop**。声音不是 50 Hz 运动控制的一部分；它有自己的线程和生命周期。
 
@@ -50,7 +50,7 @@
 | 原型位置 | 行为 | ROS 2 中的对应 |
 |---|---|---|
 | `sounds/src/lib.rs` | SoC serial → sha256 → `u32` seed → `Personality` | `duck_audio` 启动时解析 seed；音库 `.seed` 标记优先 |
-| `sounds/src/voices.rs` | 7 个 tag × 10/12 个变体，`wheee` 3 段 | 预渲染 WAV 音库，运行时不合成一次性叫声 |
+| `sounds/src/voices.rs` | 7 个 tag；`greet`/`chirp` 12 变体，`wheee` 6 变体（start/loop/end 三段），其余 10 变体 | 预渲染 WAV 音库，运行时不合成一次性叫声 |
 | `sounds/src/synth.rs` | 48 kHz、16-bit mono、加法谐波合成 | 音库格式；实时流也用 48 kHz |
 | `robotd/src/sound.rs` | 单个 `aplay` 子进程，新声音杀旧声音 | `audio_io` 的单播放引擎 + 显式抢占策略 |
 | `robotd/src/sound.rs` | `wheee` start→loop→end 流式写入 | `AudioStream` + `eos`/超时 |
@@ -75,19 +75,27 @@
 flowchart TB
   subgraph G["通用层（可复用于其他机器人）"]
     AIO["/audio_io<br/>audio_io_node<br/>播放 + 采集 + 混音 + 优先级"]
-    TTS["/audio/tts<br/>tts_node<br/>Piper / eSpeak / cloud"]
+    TTS["/audio_tts<br/>tts_node<br/>piper / paroli + 合成调度"]
   end
+
+  PS["paroli-server<br/>外部进程，可选"]
 
   subgraph D["microduck 专用层"]
-    DA["/duck_audio<br/>duck_audio<br/>voice / theremin / chorale"]
-    DE["/duck/ear<br/>duck_ear<br/>log-mel + ONNX"]
+    DA["/duck_audio<br/>voice / wheee / theremin"]
+    DE["/duck_ear<br/>log-mel + ONNX"]
+    BEH["行为/控制节点<br/>duck_control 等"]
   end
 
-  APP["App / robotctl / 遥控"] -->|"AudioClip"| AIO
-  TTS -->|"AudioClip / AudioStream"| AIO
+  APP["App / agent / 遥控"] -->|"TtsText"| TTS
+  APP -->|"AudioClip"| AIO
+  TTS -->|"AudioClip"| AIO
+  AIO -->|"AudioEvent"| TTS
+  TTS -.->|"HTTP / paroli 后端"| PS
   DA -->|"AudioClip / AudioStream"| AIO
-  AIO -->|"AudioStream mic"| DE
-  DE -->|"petting / sound_event"| DA
+  AIO -->|"AudioStream / ~/capture"| DE
+  DE -.->|"~/petting/event（未订阅）"| DA
+  DE -->|"~/petting/event"| BEH
+  BEH -->|"动作目标"| CTRL["duck_control / controller_manager"]
   AIO -->|"ALSA / null"| SPK["speaker"]
   MIC["USB / onboard mic"] --> AIO
 ```
@@ -97,19 +105,20 @@ flowchart TB
 | 层 | 包 | 可执行文件 | 节点全名 | 复用性 |
 |---|---|---|---|---|
 | 通用音频 I/O | `audio_io` | `audio_io_node` | `/audio_io`（可选 namespace） | 是 |
-| 通用消息 | `audio_io_interface` | — | — | 是 |
-| 通用 TTS（规划） | `robot_audio_tts` | `tts_node` | `/audio/tts` | 是 |
-| 鸭子音频（已实现 voice/wheee/特雷门） | `duck_audio` | `duck_audio_node` | `/duck_audio` | 否 |
-| 鸭子耳朵（已实现） | `duck_ear` | `duck_ear_node` | `/duck/ear` | 否 |
+| 通用音频消息 | `audio_io_interface` | — | — | 是 |
+| 通用 TTS（已实现） | `tts` | `tts_node` | `/audio_tts`（可选 namespace） | 是 |
+| 通用 TTS 消息（已实现） | `tts_interface` | — | — | 是 |
+| 鸭子音频（已实现 voice/wheee/特雷门） | `duck_audio` | `duck_audio_node` | `/duck_audio`（可选 namespace） | 否 |
+| 鸭子耳朵（已实现） | `duck_ear` | `duck_ear_node` | `/duck_ear`（可选 namespace） | 否 |
 | 鸭子音频消息（已实现） | `duck_audio_interface` | — | — | 否 |
 
 命名规则：
 
-- 通用音频包用 `audio_io`、`audio_io_interface`；规划中的 TTS 用 `robot_audio_tts`，机器人专用包用 `duck_*`（`duck_audio`、`duck_ear`）。
+- 通用音频包用 `audio_io`、`audio_io_interface`；TTS 用 `tts`、`tts_interface`；机器人专用包用 `duck_*`（`duck_audio`、`duck_ear`）。
 - 可执行文件统一 `*_node`；节点名是角色名词，不是实现细节。
 - 不要用 `voice_node`、`sound_node`、`audio_node` 这类没有职责信息的名字。
 - 不要用 `sound_play`：ROS 生态已有同名包，且它不解决本文的优先级/会话/混音需求。
-- 多机器人时用命名空间 `/robot1/audio_io`、`/robot1/duck_audio`，节点名不变。
+- 多机器人时用命名空间 `/robot1/audio_io`、`/robot1/audio_tts`、`/robot1/duck_audio`、`/robot1/duck_ear`，节点名不变；`tts` 的 `audio_io.node` 要同步指向对应命名空间。
 
 ### 3.2 `duck_audio` 的边界
 
@@ -117,6 +126,19 @@ flowchart TB
 `/duck_audio` 节点；内部仍按模块拆分。组合式节点、线程/仲裁、Gemini 输入、接口和 FFI 细节见：
 
 **[`src/duck_audio/docs/duck-ros2-architecture.zh-CN.md`](../src/duck_audio/docs/duck-ros2-architecture.zh-CN.md)**
+
+### 3.3 当前接线状态
+
+| 链路 | 状态 |
+|---|---|
+| App/agent → `/audio_tts` | 可用：`~/text`、`~/synthesize`、`~/say`；内部单工作线程调度 |
+| `/audio_tts` → `/audio_io` | 可用：`AudioClip`（WAV）+ `AudioEvent` 回读；不发布 `AudioStream` |
+| `/audio_tts` → paroli-server | 可选：`backend=paroli` 时 HTTP 合成；未启动则 TTS 请求失败 |
+| App → `/audio_io` | 可用：直接发 `AudioClip` 播放文件 |
+| `/duck_audio` → `/audio_io` | 可用：一次性音效 `AudioClip`，wheee/特雷门 `AudioStream` |
+| `/audio_io` → `/duck_ear` | 可用：`~/capture`，`stream_id=mic` |
+| `/duck_ear` → `/duck_audio` | **未接线**：`~/petting/event` 已发布，`duck_audio` 未订阅，不会自动 `coo` |
+| `/duck_ear` → 行为/控制 | 事件可用，具体动作/超时/互斥由行为或控制节点实现 |
 
 ---
 
@@ -158,171 +180,40 @@ flowchart TB
 
 ## 6. 麦克风与 `duck_ear`
 
-**当前状态：`audio_io` 的采集侧和 `duck_ear` 都已实现。** `duck_ear` 订阅
-`/audio_io/capture`，重采样、提取 log-mel、运行 pet-detect CNN，并发布
-`duck_audio_interface/PettingEvent`。但 `duck_audio` **还没有订阅该事件**，所以不会自动播放
-`coo`；动作也不会自动执行，需要行为/控制节点消费事件。
+`duck_ear` 的职责、输入契约、重采样/log-mel/CNN、事件语义、参数、依赖、失败模式和测试已迁移到独立文档：
 
-### 6.1 `audio_io` 采集侧
+**[`src/duck_ear/docs/duck-ros2-ear-architecture.zh-CN.md`](../src/duck_ear/docs/duck-ros2-ear-architecture.zh-CN.md)**
 
-`audio_io` 在同一个节点中同时持有 playback 和 capture 两个 `snd_pcm_t`，发布 `~/capture`。采集参数、声道语义、设备恢复和验证命令详见：
+系统级只保留这些约束：
 
-**[`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)**
+- `audio_io` 是麦克风设备的唯一所有者；`duck_ear`、未来的 WebRTC 都订阅 `~/capture`，不各自打开 ALSA。
+- `duck_ear` 只做感知，发布 `~/petting/event`（`duck_audio_interface/PettingEvent`），不播放声音、不写舵机。
+- 重采样、VAD、mel、CNN 不进入 `audio_io`，也不进入 `duck_audio`。
+- `duck_ear` 运行时需要 ONNX Runtime 和模型；缺失时节点保持运行，只是不发布摸头事件。
+- `duck_audio` 当前没有订阅 `petting`，因此不会自动 `coo`；动作由行为/控制节点消费事件后执行。
+- 采集健康看 `audio_io` 的 `~/state`（`capture_ok`/`capture_error`）和 `~/event`。
 
-**注意：只合并 I/O，不合并处理。** ONNX 推理、VAD、降噪都不进 `audio_io`；它们应放在独立的 `duck_ear`（或行为节点）中。
+原版 `pet-detect` 在摸头开始时只触发 `coo`，没有额外运动动作；“摸头后做特定动作”是新增行为，需要单独定义动作语义、超时和安全互斥。
 
-### 6.2 `duck_ear`（已实现）
-
-需要它把麦克风数据变成事件。推荐链路：
-
-```mermaid
-flowchart LR
-  AIO["/audio_io<br/>~/capture<br/>AudioStream 48k mono"] --> EAR["duck_ear<br/>resample 16k + log-mel + CNN"]
-  EAR -->|"~/petting Start/End"| AUD["duck_audio<br/>PlayVoice(coo)"]
-  EAR -->|"~/petting / ~/sound_event"| BEH["行为/控制节点<br/>执行动作"]
-  BEH --> CTRL["duck_control / controller_manager"]
-```
-
-- 订阅 `/audio_io/capture`（`AudioStream`，`stream_id=mic`）；
-- 重采样到 16 kHz mono；
-- 1 s 窗口、512 FFT、25 ms 窗、10 ms hop、40 mel、log；
-- 输入 `[1, 1, 40, 100]` 到 20 KB CNN；
-- 滞回：enter ≥ 0.95，exit < 0.85；
-- 默认 stride ≈ 250 ms；
-- 发布 `~/petting`（`duck_audio_interface/PettingEvent`，Start/End + confidence）；
-- 环境声 `sound_event` 暂未发布。
-
-麦克风没有单独的 `AudioCapture` 消息：`~/capture` 复用 `AudioStream`，建议 `stream_id = "mic"`，`eos=true` 表示停止采集；采集健康由 `AudioState.capture_ok/capture_error` 和 `AudioEvent` 的设备事件表达。
-
-`duck_ear` 已发布 `~/petting`；当前 `duck_audio` **没有**订阅它。需要声音反馈时，由
-`duck_audio` 增加一个 `PettingEvent` 订阅，在“未摔倒、无脚本动作”时调用 `PlayVoice(coo)`。
-需要运动反馈时，应由行为/控制节点订阅同一个事件并调用控制层动作，而不是让 `duck_audio`
-直接写舵机。
-
-原版 `pet-detect` 在摸头开始时只触发 `coo`，并没有额外的运动动作；如果要“摸头后做特定动作”，
-这是新增行为，需要单独定义动作语义、超时和与安全/脚本动作的互斥。
-
-### 6.3 处理放在哪里
-
-| 层 | 负责 | 不负责 |
-|---|---|---|
-| `audio_io` | 打开麦克风、48 kHz PCM、`~/capture`、设备恢复 | 重采样、VAD、mel、CNN、动作 |
-| `duck_ear` | 16 kHz 重采样、窗口、log-mel、CNN、滞回、`petting`/`sound_event` | 声卡、动作 |
-| `duck_audio` | `coo` 等语义声音、嘴部目标 | 麦克风、CNN、运动 |
-| 行为/控制节点 | 把 `petting` 映射成动作，处理安全/互斥/超时 | 音频解码、音库 |
-
-采集健康看 `audio_io` 的 `~/state`（`capture_ok`/`capture_error`）和 `~/event`；`duck_ear` 只处理
-“有数据”之后的逻辑。
-
-### 6.3.1 库与进程边界
-
-最终采用独立 `duck_ear` 包：
-
-- `libduck_ear.so` 承载重采样、log-mel、CNN 和 `PettingEvent` 发布；
-- `duck_ear_node` 只做 ROS 组合与生命周期，默认独立进程；
-- `libduck_audio.so` **不依赖** `libduck_ear.so`，音频消费者不会被动继承 ONNX Runtime；
-- 需要把 ear 合进 `duck_audio` 时，可复用 `libduck_ear.so` 的 `EarProcessor` 组合，
-  但默认进程布局保持 `audio_io` + `duck_audio` + `duck_ear` 三个。
-
-`.so` 只是代码边界，不是故障隔离；独立 `duck_ear_node` 才是进程隔离。`duck_ear` 运行时需要
-ONNX Runtime 和 `models/pet_detect.onnx`；没有模型/运行库时节点记录错误并保持运行，只是不发布
-摸头事件。
-
-### 6.4 什么时候拆回独立 `audio_capture`
-
-采集与 `audio_io` 的拆分条件、接口稳定性说明已迁移到：
-
-**[`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)**
 
 ---
 
-## 7. TTS：`/audio/tts`
+## 7. TTS：`/audio_tts`
 
-### 7.1 职责
+`tts` 功能包的职责、接口、后端、缓存、参数、延迟预算和运行方式已迁移到独立仓库文档：
 
-- 文字 → 音频；
-- 管理 TTS 后端、语音、语言、语速、音高；
-- 缓存合成结果；
-- 把音频交给 `/audio_io`，**不碰声卡**。
+**[`src/tts/docs/tts-ros2-architecture.zh-CN.md`](../src/tts/docs/tts-ros2-architecture.zh-CN.md)**
 
-### 7.2 三种接口
+系统级只保留这些约束：
 
-| 接口 | 类型 | 语义 |
-|---|---|---|
-| `~/text` | topic `TtsText` | fire-and-forget：合成并播放 |
-| `~/synthesize` | service | 只合成，返回缓存音频 URI |
-| `~/say` | action | 长文本：进度、按句反馈、可取消 |
-
-```text
-# TtsText.msg
-string text
-string voice_id
-string language
-float32 rate
-float32 pitch
-float32 volume
-bool play
-string group
-```
-
-```text
-# Synthesize.srv
-TtsText request
----
-bool success
-string audio_uri
-float32 duration
-string error
-```
-
-```text
-# Say.action
-TtsText text
----
-string request_id
----
-float32 progress
-string current_sentence
-```
-
-### 7.3 后端
-
-用 pluginlib 做 `TtsBackend`：
-
-```cpp
-class TtsBackend {
-public:
-  virtual bool initialize(const TtsParams&) = 0;
-  virtual std::expected<AudioClip, std::string>
-  synthesize(const TtsRequest&) = 0;
-  virtual bool supports_streaming() const { return false; }
-};
-```
-
-- `PiperBackend`：离线、ARM 可跑、质量好，默认；
-- `EspeakNgBackend`：兜底；
-- `CloudBackend`：可选。
-
-### 7.4 缓存与流式
-
-- 缓存键：`hash(text + voice + rate + pitch)`；
-- 缓存目录：`/var/cache/robot_audio/tts/`；
-- LRU 清理；
-- 长文本按句切分，逐句合成/提交；
-- 流式后端直接发 `AudioStream`，不落盘；
-- 非流式返回文件 URI，避免大块 PCM 走 DDS。
-
-### 7.5 优先级
-
-默认：
-
-```text
-group = "tts"
-priority = SPEECH
-policy = REPLACE_SAME_GROUP
-```
-
-新一句替换旧一句，但不会压掉 `ALERT`。需要“播报完再继续”的场景用 `QUEUE`。
+- `tts` 是通用 TTS 层，不碰声卡；输出以 `AudioClip` 交给 `audio_io`，自己不打开设备。
+- 接口在 `tts_interface`：`~/text`（合成并按 `play` 播放）、`~/synthesize`（只合成）、
+  `~/say`（长文本、逐句、可取消）、`~/event`（合成/播放/失败事件）。
+- 默认节点全名 `/audio_tts`；多机器人时用命名空间 `/robot1/audio_tts`。
+- `tts` 不感知鸭子语义；`duck_audio` 的 tag、seed、personality 不进入 `tts`。
+- `tts` 内部是单工作线程调度：同组 `~/text` 最新覆盖、可打断 `~/say`，后端推理始终单飞；
+  队列上限与抢占由 `scheduler.*` 参数控制。
+- 后端不可用（模型缺失、paroli-server 未启动）只让 TTS 请求失败，节点和运动控制都不受影响。
 
 ---
 
@@ -334,9 +225,9 @@ policy = REPLACE_SAME_GROUP
 
 **[`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)**
 
-### 8.2 后续包的 lifecycle
+### 8.2 各包的 lifecycle
 
-`duck_audio` / `duck_ear` 的 lifecycle 设计仍待实现。`duck_audio` 当前是组合式普通节点：voice 默认可用，特雷门等待 `~/theremin/enable`，合唱暂不提供。
+`duck_audio` / `duck_ear` / `tts` 都是组合式普通节点，lifecycle 设计仍待实现。`duck_audio` 的 voice 默认可用，特雷门等待 `~/theremin/enable`，合唱暂不提供；`tts` 由参数选择后端，后端不可用时节点保持运行但请求失败。
 
 ---
 
@@ -358,7 +249,8 @@ policy = REPLACE_SAME_GROUP
 
 **[`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)**
 
-特雷门端到端、`wheee` 退出、TTS 首句等属于后续包，目标见对应设计。
+特雷门端到端、`wheee` 退出属于 `duck_audio`，见其文档；TTS 首句延迟（本机冷合成约 0.3 s、缓存命中约 0.1 s）见
+[`src/tts/docs/tts-ros2-architecture.zh-CN.md`](../src/tts/docs/tts-ros2-architecture.zh-CN.md)。
 
 ---
 
@@ -368,13 +260,13 @@ policy = REPLACE_SAME_GROUP
 
 **[`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)**
 
-后续包（规划）：
+各包：
 
 | 失败 | 行为 |
 |---|---|
-| 没有音库 | `duck_audio` 的 voice 模块禁用语义声音；theremin/chorale 没有 seed 时也禁用；TTS/文件播放仍可用 |
+| 没有音库 | `duck_audio` 的 voice 模块禁用语义声音；theremin 没有 seed 时禁用；chorale 未实现；TTS/文件播放仍可用 |
 | `duck_audio` 某个模块失败 | 该模块 `state=error`，其他模块继续；节点不 panic、不退出 |
-| TTS 后端失败 | `Synthesize` 返回错误；topic 路径发 `~/event`；可回退 eSpeak |
+| TTS 后端失败 | `Synthesize` 返回 `success=false`；topic/action 路径发 `~/event FAILED`；节点保持运行，不自动切换后端 |
 
 ---
 
@@ -384,7 +276,7 @@ policy = REPLACE_SAME_GROUP
 
 **[`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)**
 
-`voice.*`、`theremin.*`、`chorale.*`、`tts.*` 属于后续 `duck_audio` / `tts_node`，不在 `audio_io` 中声明。
+`voice.*`、`theremin.*`、`chorale.*` 属于 `duck_audio`；`tts` 节点的 `backend`（与 `audio_io` 的同名参数互不相关）、`piper.*`、`paroli.*`、`cache.*` 也不在 `audio_io` 中声明。
 
 ---
 
@@ -395,22 +287,26 @@ src/
   # audio_io_interface / audio_io 的完整布局见
   # src/audio_io/docs/audio_io-architecture.zh-CN.md
 
-  robot_audio_tts/
-    src/tts_node.cpp
-    src/backend.cpp
-    src/piper_backend.cpp
-    src/espeak_backend.cpp
-    src/cache.cpp
-    include/robot_audio_tts/...
+  tts_interface/
+    msg/TtsText.msg
+    msg/TtsEvent.msg
+    srv/Synthesize.srv
+    action/Say.action
+    include/tts_interface/ros_msg.hpp
+    python/tts_interface_msg/ros_msg.py
+    test/
+
+  tts/                   # 详细布局见 src/tts/docs/tts-ros2-architecture.zh-CN.md
+    include/tts/...
+    src/...
     config/tts.yaml
     launch/tts.launch.py
+    tools/install_piper.sh
+    docs/
 
   duck_audio_interface/
-    srv/PlayVoice.srv
-    msg/PettingEvent.msg
-    msg/SoundEvent.msg
-    msg/ThereminState.msg
-    msg/ChoraleState.msg
+    srv/{PlayVoice,SetTheremin,SetChorale}.srv
+    msg/{VoiceState,WheeeHold,ThereminState,ChoraleState,PettingEvent}.msg
 
   duck_audio/              # 详细布局见 src/duck_audio/docs/duck-ros2-architecture.zh-CN.md
     include/duck_audio/...
@@ -420,10 +316,10 @@ src/
     launch/duck_audio.launch.py
     tools/
 
-  duck_ear/
-    include/duck_ear/{duck_ear_node,ear_processor,linear_resampler}.hpp
-    src/{duck_ear_node,ear_processor,linear_resampler,main}.cpp
-    rust/{pet-detect,duck_ear_ffi}
+  duck_ear/              # 详细布局见 src/duck_ear/docs/duck-ros2-ear-architecture.zh-CN.md
+    include/duck_ear/...
+    src/...
+    rust/                  # pet-detect + C ABI
     models/pet_detect.onnx
     config/duck_ear.yaml
     launch/duck_ear.launch.py
@@ -437,10 +333,10 @@ src/
 
 **[`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)**
 
-后续包（规划）：
+各包：
 
-1. `tts_node` 的 `~/synthesize`、`~/text`、`~/say` 可用。
-2. `duck_ear` 在麦克风上检测摸头并发布 `PettingEvent`；`coo`/动作消费待接。
+1. `tts_node` 的 `~/synthesize`、`~/text`、`~/say`、`~/event` 可用；`piper` 与 `paroli` 后端可切换（已完成本机 piper 与 paroli 协议验证）；详见 [`src/tts/docs/tts-ros2-architecture.zh-CN.md`](../src/tts/docs/tts-ros2-architecture.zh-CN.md)。
+2. `duck_ear` 在麦克风上检测摸头并发布 `PettingEvent`；`coo`/动作消费待接。详见 [`src/duck_ear/docs/duck-ros2-ear-architecture.zh-CN.md`](../src/duck_ear/docs/duck-ros2-ear-architecture.zh-CN.md)。
 3. `duck_audio` 的 voice/wheee/特雷门可用，且单模块失败不影响其他模块；合唱暂不实现。
 4. `duck_audio` 默认节点为 `/duck_audio`，`~/voice`、`~/theremin` 接口可用。
 
@@ -451,8 +347,8 @@ src/
 1. **`audio_io_interface` + `audio_io`（已完成）**：详见 [`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)。
 2. **`audio_io` launch 集成（已完成）**：默认 `/audio_io`；支持外部 `config` 与可选 `namespace`。
 3. **`duck_audio` 的 voice/wheee 模块（已完成）**：播放预渲染音库；启动 greet；`wheee` 用 `AudioStream`。
-4. **`tts_node`**：先 `synthesize` service + `text` topic，Piper/eSpeak；再接 `say` action。
-5. **`audio_io` capture + `duck_ear`**：采集与摸头检测已完成；声音/动作消费待接。
+4. **`tts_interface` + `tts_node`（已完成）**：`synthesize`/`text`/`say`/`event`，piper 与 paroli 后端；板端 paroli + RKNN 待实机验证。细节见 [`src/tts/docs/tts-ros2-architecture.zh-CN.md`](../src/tts/docs/tts-ros2-architecture.zh-CN.md)。
+5. **`audio_io` capture + `duck_ear`**：采集与摸头检测已完成；声音/动作消费待接。详见 [`src/duck_ear/docs/duck-ros2-ear-architecture.zh-CN.md`](../src/duck_ear/docs/duck-ros2-ear-architecture.zh-CN.md)。
 6. **`duck_audio` 的 theremin（已完成）/ chorale（待实现）**：特雷门按 `~/theremin/enable` 开启；合唱接口保留，当前节点不广告。
 7. **AIC3104 板级适配**：overlay/DKMS 或换 USB 声卡；再切回机器人内置扬声器/麦克风。
 
@@ -461,7 +357,7 @@ src/
 ## 16. 与运动控制架构的边界
 
 - `ros2_control` / `DuckPolicyController` 负责 50 Hz 运动闭环；**不读音频、不写音频**。
-- `duck_audio` 的 theremin / chorale 模块需要动嘴/动头时，通过控制层的命令接口发送目标，不直接写舵机。
+- `duck_audio` 的 theremin（未来 chorale）需要动嘴/动头时，通过控制层的命令接口发送目标，不直接写舵机。
 - `audio_io` 不感知机器人语义；它只认 `AudioClip`、`AudioStream`、优先级和组。
 - 音频节点崩溃不应导致运动控制崩溃；反之，控制层重启不应丢失音库或 TTS 缓存。
 
@@ -527,7 +423,7 @@ pw-play /tmp/test.wav
 ## 附录 B：待确认问题
 
 1. `microduck_rev` 的机器人最终使用内置 AIC3104，还是 USB 声卡？这决定 `playback.device` 的默认值和是否需要板级 overlay。
-2. 是否允许 TTS 与音效同时出声？如果允许，`MIX` 的 ducking 曲线需要定。
+2. 是否允许 TTS 与音效同时出声？当前 `tts` 固定 `SPEECH` + `REPLACE_SAME_GROUP`/`QUEUE`，不做 `MIX`；如果后续要混音，`MIX` 的 ducking 曲线需要定。
 3. `duck_audio` 内部的 theremin / chorale 是否始终同进程，还是保留按参数禁用/拆回独立节点的能力？取决于实测端到端延迟和稳定性。
 4. 音库 seed 是否继续绑定 SoC serial，还是允许每台机器人手工配置？
 5. WebRTC 双向音频是否在近期进入范围？如果进入，`audio_io` 需要增加 `AudioStream` 的 jitter buffer 和回声消除策略。
