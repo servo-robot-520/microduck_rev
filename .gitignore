@@ -66,3 +66,10 @@ src/tts_interface
 
 scripts
 ws_tools
+
+# duck_audio：Rust 构建产物；源码、Cargo.lock 和 vendored sounds 需要提交
+src/duck_audio/rust/target/
+src/duck_audio/**/target/
+src/duck_audio/**/*.d
+src/duck_audio/**/*.so
+src/duck_audio/**/*.a

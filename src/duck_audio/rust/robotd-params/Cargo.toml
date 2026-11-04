@@ -1,0 +1,10 @@
+[package]
+name = "robotd-params"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "vendored sounds crate 的最小 serial 兼容层"
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,19 @@
+# 声音 FFI 的本地 workspace。`sounds/` 是上游 crate 的固定副本
+# （见 tools/sync_microduck_sounds.sh），不是指向另一个 checkout 的 path 依赖。
+[workspace]
+resolver = "2"
+members = ["sounds", "robotd-params", "microduck_sounds_ffi"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+clap = { version = "4", features = ["derive"] }
+hound = "3.5"
+
+[profile.release]
+# C ABI 的 `catch_unwind` 需要栈展开；`panic = "abort"` 会直接杀死节点。
+panic = "unwind"
