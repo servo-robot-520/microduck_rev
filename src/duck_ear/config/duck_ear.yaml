@@ -1,0 +1,13 @@
+duck_ear:
+  ros__parameters:
+    # audio_io 采集侧发布的话题；不要在这里直接打开 ALSA。
+    capture_topic: /audio_io/capture
+    # audio_io 的采集流 id；空字符串表示接受任意流。
+    stream_id: mic
+    # 空 = 使用 share/duck_ear/models/pet_detect.onnx。
+    model: ""
+    # 滞回：高于 enter 开始摸头，低于 exit 结束。
+    enter_threshold: 0.95
+    exit_threshold: 0.85
+    # 两次推理之间的 16 kHz 样本数；0 = 原版默认（约 250 ms）。
+    stride: 0

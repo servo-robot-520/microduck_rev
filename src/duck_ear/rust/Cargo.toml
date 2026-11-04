@@ -1,0 +1,16 @@
+# duck_ear 的 Rust 工作区：vendored pet-detect + 静态 FFI 包装。
+# 静态库只被 libduck_ear.so 链接，不额外安装 Rust 运行时。
+[workspace]
+resolver = "2"
+members = ["pet-detect", "duck_ear_ffi"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+clap = { version = "4", features = ["derive"] }
+hound = "3.5"
+tracing = "0.1"

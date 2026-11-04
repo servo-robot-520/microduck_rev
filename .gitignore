@@ -76,3 +76,6 @@ src/duck_audio/**/*.a
 # 本地验证构建产物
 build-check*/
 install-check*/
+
+src/duck_ear/rust/target/
+src/duck_ear/**/target/

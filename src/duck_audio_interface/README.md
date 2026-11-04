@@ -19,6 +19,7 @@
 | `~/theremin/state` | `msg/ThereminState` | 距离、closeness、音高、嘴、传感器状态 |
 | `~/chorale/enable` | `srv/SetChorale` | 启停合唱、选择曲目（接口保留，当前 `duck_audio` 暂不广告） |
 | `~/chorale/state` | `msg/ChoraleState` | 声部、beat、人数（接口保留，当前不发布） |
+| `~/petting` | `msg/PettingEvent` | `duck_ear` 的摸头 Start/End 事件 |
 
 `wheee` 不放进 `PlayVoice`：它需要持续按住和松手落地，用 `WheeeHold` 表达电平，而不是
 一次服务调用。

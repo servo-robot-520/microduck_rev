@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>duck_ear</name>
+  <version>0.1.0</version>
+  <description>麦克风摸头/环境声感知：订阅 audio_io capture，重采样、log-mel、CNN，发布 PettingEvent</description>
+  <maintainer email="mdmbct@163.com">greenhand520</maintainer>
+  <license>GPL-3.0-only</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>audio_io_interface</depend>
+  <depend>duck_audio_interface</depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

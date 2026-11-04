@@ -8,6 +8,7 @@
 #include "duck_audio_interface/msg/chorale_state.hpp"
 #include "duck_audio_interface/msg/theremin_state.hpp"
 #include "duck_audio_interface/msg/voice_state.hpp"
+#include "duck_audio_interface/msg/petting_event.hpp"
 #include "duck_audio_interface/msg/wheee_hold.hpp"
 #include "duck_audio_interface/srv/play_voice.hpp"
 #include "duck_audio_interface/srv/set_chorale.hpp"
@@ -119,6 +120,7 @@ namespace duck_audio_interface {
     using MsgThereminState = duck_audio_interface::msg::ThereminState;
     using MsgChoraleState = duck_audio_interface::msg::ChoraleState;
     using MsgWheeeHold = duck_audio_interface::msg::WheeeHold;
+    using MsgPettingEvent = duck_audio_interface::msg::PettingEvent;
     using SrvPlayVoice = duck_audio_interface::srv::PlayVoice;
     using SrvSetTheremin = duck_audio_interface::srv::SetTheremin;
     using SrvSetChorale = duck_audio_interface::srv::SetChorale;

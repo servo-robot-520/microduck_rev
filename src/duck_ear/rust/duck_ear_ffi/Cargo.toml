@@ -1,0 +1,13 @@
+[package]
+name = "duck_ear_ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "duck_ear_ffi"
+crate-type = ["staticlib"]
+
+[dependencies]
+pet-detect = { path = "../pet-detect" }

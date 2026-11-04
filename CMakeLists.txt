@@ -160,6 +160,7 @@ colcon_add_subdirectories(
         common_cpp
         audio_io_interface
         duck_audio_interface
+        duck_ear
 #        tts_interface
         mpu6500_ros2_control
         feetech_servo_ros2_control

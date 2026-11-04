@@ -11,6 +11,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
         "msg/ThereminState.msg"
         "msg/ChoraleState.msg"
         "msg/WheeeHold.msg"
+        "msg/PettingEvent.msg"
         "srv/PlayVoice.srv"
         "srv/SetTheremin.srv"
         "srv/SetChorale.srv"
