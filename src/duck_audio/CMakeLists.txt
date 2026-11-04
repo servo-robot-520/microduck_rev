@@ -45,6 +45,10 @@ find_package(geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
 
+if (NOT ROS2_WS_SOURCE_BUILD)
+    find_package(common_cpp REQUIRED)
+endif ()
+
 # ---------------------------------------------------------------------------
 # Rust FFI: libmicroduck_sounds.so
 # ---------------------------------------------------------------------------
@@ -80,14 +84,14 @@ elseif (DUCK_AUDIO_BUILD_RUST)
     add_custom_command(
             OUTPUT "${DUCK_RUST_LIB}" "${DUCK_SOUNDS_BIN}"
             COMMAND ${CMAKE_COMMAND} -E env
-                    "CARGO_TARGET_DIR=${DUCK_RUST_TARGET_DIR}"
-                    "MAKEFLAGS="
-                    ${CARGO_EXECUTABLE} ${DUCK_CARGO_ARGS}
+            "CARGO_TARGET_DIR=${DUCK_RUST_TARGET_DIR}"
+            "MAKEFLAGS="
+            ${CARGO_EXECUTABLE} ${DUCK_CARGO_ARGS}
             WORKING_DIRECTORY "${DUCK_RUST_DIR}"
             DEPENDS ${DUCK_RUST_SOURCES}
-                    "${DUCK_RUST_DIR}/Cargo.toml"
-                    "${DUCK_RUST_DIR}/Cargo.lock"
-                    "${DUCK_RUST_DIR}/UPSTREAM_MICRODUCK_COMMIT"
+            "${DUCK_RUST_DIR}/Cargo.toml"
+            "${DUCK_RUST_DIR}/Cargo.lock"
+            "${DUCK_RUST_DIR}/UPSTREAM_MICRODUCK_COMMIT"
             COMMENT "Building libmicroduck_sounds with cargo"
             VERBATIM)
     add_custom_target(duck_audio_rust ALL DEPENDS "${DUCK_RUST_LIB}" "${DUCK_SOUNDS_BIN}")
@@ -185,7 +189,16 @@ endif ()
 if (BUILD_EXE)
     add_executable(duck_audio_node src/main.cpp)
     target_compile_features(duck_audio_node PRIVATE cxx_std_23)
-    target_link_libraries(duck_audio_node PRIVATE duck_audio)
+    target_link_libraries(duck_audio_node duck_audio)
+    if (ROS2_WS_SOURCE_BUILD)
+        if (NOT TARGET common_cpp_ros_logging)
+            message(FATAL_ERROR
+                    "CLion workspace configuration requires the in-tree common_cpp_ros_logging target.")
+        endif ()
+        target_link_libraries(duck_audio_node common_cpp_ros_logging)
+    else ()
+        target_link_libraries(duck_audio_node common_cpp::common_cpp_ros_logging)
+    endif ()
     if (TARGET microduck_sounds)
         add_dependencies(duck_audio_node duck_audio_rust)
         set_target_properties(duck_audio_node PROPERTIES
@@ -241,6 +254,6 @@ install(DIRECTORY include/ DESTINATION include)
 
 ament_export_include_directories(include)
 ament_export_dependencies(rclcpp sensor_msgs std_msgs geometry_msgs tf2_ros tf2_sensor_msgs
-        audio_io_interface duck_audio_interface)
+        audio_io_interface duck_audio_interface common_cpp)
 ament_export_targets(duck_audioTargets HAS_LIBRARY_TARGET)
 ament_package()

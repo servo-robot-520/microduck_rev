@@ -19,6 +19,10 @@ find_package(rclcpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(std_msgs REQUIRED)
 
+if (NOT ROS2_WS_SOURCE_BUILD)
+    find_package(common_cpp REQUIRED)
+endif ()
+
 # ---------------------------------------------------------------------------
 # Rust pet-detect: static lib, linked into libduck_ear.so
 # ---------------------------------------------------------------------------
@@ -46,13 +50,13 @@ elseif (DUCK_EAR_BUILD_RUST)
     add_custom_command(
             OUTPUT "${DUCK_EAR_RUST_LIB}"
             COMMAND ${CMAKE_COMMAND} -E env
-                    "CARGO_TARGET_DIR=${DUCK_EAR_RUST_TARGET_DIR}"
-                    "MAKEFLAGS="
-                    ${CARGO_EXECUTABLE} ${DUCK_EAR_CARGO_ARGS}
+            "CARGO_TARGET_DIR=${DUCK_EAR_RUST_TARGET_DIR}"
+            "MAKEFLAGS="
+            ${CARGO_EXECUTABLE} ${DUCK_EAR_CARGO_ARGS}
             WORKING_DIRECTORY "${DUCK_EAR_RUST_DIR}"
             DEPENDS ${DUCK_EAR_RUST_SOURCES}
-                    "${DUCK_EAR_RUST_DIR}/Cargo.toml"
-                    "${DUCK_EAR_RUST_DIR}/Cargo.lock"
+            "${DUCK_EAR_RUST_DIR}/Cargo.toml"
+            "${DUCK_EAR_RUST_DIR}/Cargo.lock"
             COMMENT "Building libduck_ear_ffi.a"
             VERBATIM)
     add_custom_target(duck_ear_rust ALL DEPENDS "${DUCK_EAR_RUST_LIB}")
@@ -110,7 +114,16 @@ set_target_properties(duck_ear PROPERTIES INSTALL_RPATH "$ORIGIN")
 if (BUILD_EXE)
     add_executable(duck_ear_node src/main.cpp)
     target_compile_features(duck_ear_node PRIVATE cxx_std_23)
-    target_link_libraries(duck_ear_node PRIVATE duck_ear)
+    target_link_libraries(duck_ear_node duck_ear)
+    if (ROS2_WS_SOURCE_BUILD)
+        if (NOT TARGET common_cpp_ros_logging)
+            message(FATAL_ERROR
+                    "CLion workspace configuration requires the in-tree common_cpp_ros_logging target.")
+        endif ()
+        target_link_libraries(duck_ear_node common_cpp_ros_logging)
+    else ()
+        target_link_libraries(duck_ear_node common_cpp::common_cpp_ros_logging)
+    endif ()
     set_target_properties(duck_ear_node PROPERTIES INSTALL_RPATH "$ORIGIN/..")
 endif ()
 
@@ -133,6 +146,6 @@ endif ()
 install(DIRECTORY models DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 ament_export_include_directories(include)
-ament_export_dependencies(rclcpp std_msgs ament_index_cpp audio_io_interface duck_audio_interface)
+ament_export_dependencies(rclcpp std_msgs ament_index_cpp audio_io_interface duck_audio_interface common_cpp)
 ament_export_targets(duck_earTargets HAS_LIBRARY_TARGET)
 ament_package()
