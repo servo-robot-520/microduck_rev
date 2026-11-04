@@ -54,7 +54,7 @@ void WheeePlayer::on_hold(const bool held) {
     hold_ = true;
     running_ = true;
     thread_ = std::thread([this, segments = std::move(segments)]() mutable {
-        // Segments are local to the writer; the player never touches them after start.
+        // 三段音频只属于 writer 线程；start 之后 player 不会再访问它们。
         publish_paced(segments.start);
         while (hold_.load() && running_.load()) {
             publish_paced(segments.loop);
