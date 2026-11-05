@@ -28,7 +28,7 @@ def test_python_endpoint_helpers() -> None:
     assert ros_msg.topic_chorale_state() == "/duck_audio/chorale/state"
     assert ros_msg.topic_mouth() == "/duck_audio/mouth"
     assert ros_msg.service_play_voice("/robot_a/duck_audio/") == "/robot_a/duck_audio/voice/play"
-    assert ros_msg.qualify_node_fqn("/robot_a") == "/robot_a/duck_audio"
+    assert ros_msg.qualify_node_fqn(ros_msg.DEFAULT_NODE_FQN, "/robot_a") == "/robot_a/duck_audio"
     assert ros_msg.topic_petting_event(ros_msg.DEFAULT_NODE_FQN, "/robot_a") == "/robot_a/duck_audio/petting/event"
 
 

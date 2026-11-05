@@ -51,8 +51,8 @@ namespace duck_asr_interface {
 
     /// 把默认节点全名限定到调用方 namespace；根 namespace 保持默认名。
     [[nodiscard]] inline std::string qualify_node_fqn(
-            const std::string_view node_namespace,
-            const std::string_view default_node_fqn = detail::kDefaultNodeFqn) {
+            const std::string_view default_node_fqn = detail::kDefaultNodeFqn,
+            const std::string_view node_namespace = "/") {
         const auto base = detail::trim_trailing_slashes(default_node_fqn);
         detail::require_node_fqn(base);
         auto ns = detail::trim_trailing_slashes(node_namespace);
@@ -77,7 +77,7 @@ namespace duck_asr_interface {
     [[nodiscard]] inline std::string topic_intent(
             const std::string_view node_fqn = detail::kDefaultNodeFqn,
             const std::string_view node_namespace = "/") {
-        return detail::endpoint_name(qualify_node_fqn(node_namespace, node_fqn), "intent");
+        return detail::endpoint_name(qualify_node_fqn(node_fqn, node_namespace), "intent");
     }
 
     // 与生成消息名称一致的简洁类型别名。

@@ -20,8 +20,10 @@ namespace {
     }
 
     TEST(RosMsgHelpers, QualifiesDefaultNodeWithNamespace) {
-        EXPECT_EQ(duck_asr_interface::qualify_node_fqn("/"), "/duck_asr");
-        EXPECT_EQ(duck_asr_interface::qualify_node_fqn("/robot_a"), "/robot_a/duck_asr");
+        EXPECT_EQ(duck_asr_interface::qualify_node_fqn(), "/duck_asr");
+        EXPECT_EQ(duck_asr_interface::qualify_node_fqn(
+                          duck_asr_interface::kDefaultNodeFqn, "/robot_a"),
+                  "/robot_a/duck_asr");
         EXPECT_EQ(duck_asr_interface::topic_intent(duck_asr_interface::kDefaultNodeFqn, "/robot_a"),
                   "/robot_a/duck_asr/intent");
     }

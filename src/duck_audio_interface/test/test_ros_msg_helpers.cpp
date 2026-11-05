@@ -32,8 +32,10 @@ TEST(RosMsgHelpers, BuildsDefaultAbsoluteEndpointNames) {
 }
 
 TEST(RosMsgHelpers, QualifiesDefaultNodeWithNamespace) {
-    EXPECT_EQ(duck_audio_interface::qualify_node_fqn("/"), "/duck_audio");
-    EXPECT_EQ(duck_audio_interface::qualify_node_fqn("/robot_a"), "/robot_a/duck_audio");
+    EXPECT_EQ(duck_audio_interface::qualify_node_fqn(), "/duck_audio");
+    EXPECT_EQ(duck_audio_interface::qualify_node_fqn(
+                      duck_audio_interface::kDefaultNodeFqn, "/robot_a"),
+              "/robot_a/duck_audio");
     EXPECT_EQ(duck_audio_interface::service_play_voice(
                       duck_audio_interface::kDefaultNodeFqn, "/robot_a"),
               "/robot_a/duck_audio/voice/play");

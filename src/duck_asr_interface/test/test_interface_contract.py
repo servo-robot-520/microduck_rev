@@ -54,7 +54,7 @@ def test_python_endpoint_helpers() -> None:
     assert ros_msg.topic_intent() == "/duck_asr/intent"
     assert ros_msg.topic_intent("/robot_a/duck_asr") == "/robot_a/duck_asr/intent"
     assert ros_msg.topic_intent("/robot_a/duck_asr///") == "/robot_a/duck_asr/intent"
-    assert ros_msg.qualify_node_fqn("/robot_a") == "/robot_a/duck_asr"
+    assert ros_msg.qualify_node_fqn(ros_msg.DEFAULT_NODE_FQN, "/robot_a") == "/robot_a/duck_asr"
     assert ros_msg.topic_intent(ros_msg.DEFAULT_NODE_FQN, "/robot_a") == "/robot_a/duck_asr/intent"
 
 

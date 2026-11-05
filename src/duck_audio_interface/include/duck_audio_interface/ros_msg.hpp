@@ -63,8 +63,8 @@ namespace duck_audio_interface {
 
     /// 把默认节点全名限定到调用方 namespace；根 namespace 保持默认名。
     [[nodiscard]] inline std::string qualify_node_fqn(
-            const std::string_view node_namespace,
-            const std::string_view default_node_fqn = detail::kDefaultNodeFqn) {
+            const std::string_view default_node_fqn = detail::kDefaultNodeFqn,
+            const std::string_view node_namespace = "/") {
         const auto base = detail::trim_trailing_slashes(default_node_fqn);
         detail::require_node_fqn(base);
         auto ns = detail::trim_trailing_slashes(node_namespace);
@@ -97,56 +97,56 @@ namespace duck_audio_interface {
     [[nodiscard]] inline std::string service_play_voice(
             const std::string_view node_fqn = detail::kDefaultNodeFqn,
             const std::string_view node_namespace = "/") {
-        return detail::endpoint_name(qualify_node_fqn(node_namespace, node_fqn), "voice/play");
+        return detail::endpoint_name(qualify_node_fqn(node_fqn, node_namespace), "voice/play");
     }
 
     [[nodiscard]] inline std::string service_set_theremin(
             const std::string_view node_fqn = detail::kDefaultNodeFqn,
             const std::string_view node_namespace = "/") {
-        return detail::endpoint_name(qualify_node_fqn(node_namespace, node_fqn), "theremin/enable");
+        return detail::endpoint_name(qualify_node_fqn(node_fqn, node_namespace), "theremin/enable");
     }
 
     [[nodiscard]] inline std::string service_set_chorale(
             const std::string_view node_fqn = detail::kDefaultNodeFqn,
             const std::string_view node_namespace = "/") {
-        return detail::endpoint_name(qualify_node_fqn(node_namespace, node_fqn), "chorale/enable");
+        return detail::endpoint_name(qualify_node_fqn(node_fqn, node_namespace), "chorale/enable");
     }
 
     /// 外部消费者使用的绝对话题名称。
     [[nodiscard]] inline std::string topic_wheee_hold(
             const std::string_view node_fqn = detail::kDefaultNodeFqn,
             const std::string_view node_namespace = "/") {
-        return detail::endpoint_name(qualify_node_fqn(node_namespace, node_fqn), "voice/wheee_hold");
+        return detail::endpoint_name(qualify_node_fqn(node_fqn, node_namespace), "voice/wheee_hold");
     }
 
     [[nodiscard]] inline std::string topic_voice_state(
             const std::string_view node_fqn = detail::kDefaultNodeFqn,
             const std::string_view node_namespace = "/") {
-        return detail::endpoint_name(qualify_node_fqn(node_namespace, node_fqn), "voice/state");
+        return detail::endpoint_name(qualify_node_fqn(node_fqn, node_namespace), "voice/state");
     }
 
     [[nodiscard]] inline std::string topic_theremin_state(
             const std::string_view node_fqn = detail::kDefaultNodeFqn,
             const std::string_view node_namespace = "/") {
-        return detail::endpoint_name(qualify_node_fqn(node_namespace, node_fqn), "theremin/state");
+        return detail::endpoint_name(qualify_node_fqn(node_fqn, node_namespace), "theremin/state");
     }
 
     [[nodiscard]] inline std::string topic_chorale_state(
             const std::string_view node_fqn = detail::kDefaultNodeFqn,
             const std::string_view node_namespace = "/") {
-        return detail::endpoint_name(qualify_node_fqn(node_namespace, node_fqn), "chorale/state");
+        return detail::endpoint_name(qualify_node_fqn(node_fqn, node_namespace), "chorale/state");
     }
 
     [[nodiscard]] inline std::string topic_mouth(
             const std::string_view node_fqn = detail::kDefaultNodeFqn,
             const std::string_view node_namespace = "/") {
-        return detail::endpoint_name(qualify_node_fqn(node_namespace, node_fqn), "mouth");
+        return detail::endpoint_name(qualify_node_fqn(node_fqn, node_namespace), "mouth");
     }
 
     [[nodiscard]] inline std::string topic_petting_event(
             const std::string_view node_fqn = detail::kDefaultNodeFqn,
             const std::string_view node_namespace = "/") {
-        return detail::endpoint_name(qualify_node_fqn(node_namespace, node_fqn), "petting/event");
+        return detail::endpoint_name(qualify_node_fqn(node_fqn, node_namespace), "petting/event");
     }
 
     // 与生成消息/服务名称一致的简洁类型别名。

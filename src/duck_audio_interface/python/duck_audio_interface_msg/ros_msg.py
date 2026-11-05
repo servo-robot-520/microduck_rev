@@ -37,10 +37,11 @@ def _normalized_node_fqn(node_fqn: str) -> str:
 def _endpoint_name(node_fqn: str, endpoint_suffix: str,
                    node_namespace: str = "/") -> str:
     """限定节点 FQN 后拼接 endpoint 后缀。"""
-    return f"{qualify_node_fqn(node_namespace, node_fqn)}/{endpoint_suffix}"
+    return f"{qualify_node_fqn(node_fqn, node_namespace)}/{endpoint_suffix}"
 
 
-def qualify_node_fqn(node_namespace: str, default_node_fqn: str = DEFAULT_NODE_FQN) -> str:
+def qualify_node_fqn(default_node_fqn: str = DEFAULT_NODE_FQN,
+                     node_namespace: str = "/") -> str:
     """把默认 duck_audio 节点全名限定到调用方 namespace。"""
     base = _normalized_node_fqn(default_node_fqn)
     namespace = node_namespace.rstrip("/") or "/"
