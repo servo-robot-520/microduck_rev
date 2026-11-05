@@ -63,6 +63,8 @@ src/feetech_servo_ros2_control
 src/mpu6500_ros_control
 src/tts
 src/tts_interface
+src/asr
+src/asr_interface
 
 scripts
 ws_tools
