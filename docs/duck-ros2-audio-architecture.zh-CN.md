@@ -2,7 +2,7 @@
 
 > 对象：`microduck_rev`（ROS 2 Humble，C++23，`ament_cmake`）。
 > 依据：`pollen-robotics/microduck` 的 `sounds`、`robotd/src/sound.rs`、`theremin`、`chorale`、`pet-detect`，以及当前开发板的实测结果。
-> 状态：`audio_io`、`audio_io_interface`、`duck_audio`（voice/wheee/特雷门）、`duck_audio_interface`、`duck_ear`、`tts_interface`、`tts`（piper/paroli）已实现；合唱暂不实现。`duck_ear` 运行时需要 ONNX Runtime，`paroli` 后端需要 paroli-server。
+> 状态：`audio_io`、`audio_io_interface`、`duck_audio`（voice/wheee/特雷门）、`duck_audio_interface`、`duck_ear`、`tts_interface`、`tts`（piper/paroli）已实现；合唱暂不实现。`duck_ear` 运行时需要 ONNX Runtime，`paroli` 后端需要 paroli-server。语音识别（ASR/唤醒词）为独立层，见 [`duck-ros2-asr-architecture.zh-CN.md`](./duck-ros2-asr-architecture.zh-CN.md)。
 > `audio_io` 详细架构：[`src/audio_io/docs/audio_io-architecture.zh-CN.md`](../src/audio_io/docs/audio_io-architecture.zh-CN.md)
 > 约定：节点名用 `snake_case`；话题/服务/动作名相对于节点私有命名空间书写，例如 `~/play`。
 
@@ -33,12 +33,16 @@
 - 播放实时 PCM 流（特雷门）；流式 TTS 尚未实现。
 - TTS：文字 → 音频；service 只合成，topic/action 合成并播放。
 - 麦克风采集、摸头检测、环境声事件。
+- 语音识别：订阅同一路采集，做唤醒词、固定口令与后续自由识别；架构见
+  [`duck-ros2-asr-architecture.zh-CN.md`](./duck-ros2-asr-architecture.zh-CN.md)。
 - 优先级、抢占、排队、同组替换、混音/ducking。
 - 设备热插拔、错误降级、状态上报。
 
 ### 1.2 非目标
 
-- **不做语音识别（ASR）、唤醒词、对话理解**。`pet-detect` 只判断“是否在摸头”，环境声 `Voice` 只是 RMS 包络事件。
+- **`audio_io` / `duck_audio` 不做语音识别（ASR）、唤醒词、对话理解**。ASR 是独立层 `asr`，
+  鸭子语义在 `duck_asr`；本文只约束它们共用采集设备。`pet-detect` 只判断“是否在摸头”，环境声
+  `Voice` 只是 RMS 包络事件。
 - **不做云 TTS 强依赖**。当前只有离线 `piper`/`paroli` 后端；eSpeak 与云后端未实现。
 - **不在本节点内做 WebRTC 传输**。`mediad` 未来需要麦克风/扬声器时，通过 `AudioStream` 接入 `audio_io`。
 - **不把声音合成塞进 `ros2_control` 的 update loop**。声音不是 50 Hz 运动控制的一部分；它有自己的线程和生命周期。
@@ -80,7 +84,15 @@ flowchart TB
 
   PS["paroli-server<br/>外部进程，可选"]
 
-  subgraph D["microduck 专用层"]
+  subgraph P["duck_asr_node 进程（默认组合 libasr）"]
+    SR["asr::AsrNode<br/>/asr<br/>KWS + VAD + ASR"]
+    DS["duck_asr<br/>/duck_asr<br/>口令 → 意图 / 回复"]
+    SR -->|"AsrEvent"| DS
+  end
+
+  ASRN["asr_node<br/>独立测试 / 其他机器人"]
+
+  subgraph D["microduck 其他节点"]
     DA["/duck_audio<br/>voice / wheee / theremin"]
     DE["/duck_ear<br/>log-mel + ONNX"]
     BEH["行为/控制节点<br/>duck_control 等"]
@@ -93,6 +105,14 @@ flowchart TB
   TTS -.->|"HTTP / paroli 后端"| PS
   DA -->|"AudioClip / AudioStream"| AIO
   AIO -->|"AudioStream / ~/capture"| DE
+  AIO -->|"AudioStream / ~/capture"| SR
+  AIO -->|"AudioEvent（播放门控）"| SR
+  AIO -.->|"~/capture"| ASRN
+  ASRN -.->|"AsrEvent（asr.compose=false）"| DS
+  SR -.->|"AsrEvent（后期 agent）"| APP
+  DS -->|"DuckIntent"| BEH
+  DS -->|"TtsText"| TTS
+  DS -.->|"PlayVoice（可选）"| DA
   DE -.->|"~/petting/event（未订阅）"| DA
   DE -->|"~/petting/event"| BEH
   BEH -->|"动作目标"| CTRL["duck_control / controller_manager"]
@@ -108,6 +128,10 @@ flowchart TB
 | 通用音频消息 | `audio_io_interface` | — | — | 是 |
 | 通用 TTS（已实现） | `tts` | `tts_node` | `/audio_tts`（可选 namespace） | 是 |
 | 通用 TTS 消息（已实现） | `tts_interface` | — | — | 是 |
+| 通用语音识别（设计） | `asr` | `asr_node` | `/asr`（可选 namespace） | 是 |
+| 通用语音识别消息（设计） | `asr_interface` | — | — | 是 |
+| 鸭子口令语义（设计） | `duck_asr` | `duck_asr_node` | `/duck_asr`（可选 namespace） | 否 |
+| 鸭子口令消息（设计） | `duck_asr_interface` | — | — | 否 |
 | 鸭子音频（已实现 voice/wheee/特雷门） | `duck_audio` | `duck_audio_node` | `/duck_audio`（可选 namespace） | 否 |
 | 鸭子耳朵（已实现） | `duck_ear` | `duck_ear_node` | `/duck_ear`（可选 namespace） | 否 |
 | 鸭子音频消息（已实现） | `duck_audio_interface` | — | — | 否 |
@@ -139,6 +163,22 @@ flowchart TB
 | `/audio_io` → `/duck_ear` | 可用：`~/capture`，`stream_id=mic` |
 | `/duck_ear` → `/duck_audio` | **未接线**：`~/petting/event` 已发布，`duck_audio` 未订阅，不会自动 `coo` |
 | `/duck_ear` → 行为/控制 | 事件可用，具体动作/超时/互斥由行为或控制节点实现 |
+| `/audio_io` → `/asr` | 设计：`~/capture`，`stream_id=mic`；播放门控订阅 `~/event` |
+| `/asr` → `/duck_asr` | 设计：同进程组合（`asr.compose=true`），`AsrEvent` 的 `EVENT_WAKE`/`EVENT_FINAL` |
+| `/duck_asr` → `/audio_tts`、`battery_monitor` | 设计：电量回复；姿势/动作只发 `DuckIntent`，执行待 `duck_control` 命令接口 |
+
+### 3.4 语音识别层
+
+唤醒词、VAD、ASR、口令语义不属于 `audio_io`，也不属于 `duck_audio`/`duck_ear`：
+
+- 通用层 `asr`：订阅 `~/capture`，做重采样、VAD、唤醒词、ASR；输出纯文本事件。
+- 鸭子层 `duck_asr`：组合 `libasr`，把固定口令映射成电量查询、姿势/动作意图与 TTS 回复；不实现 ASR 后端。
+- 固定口令必须编译成解码约束，不是事后字符串匹配；词表由 `duck_asr` 唯一维护。
+- 播放期间必须做半双工门控，否则会识别到自己的 TTS/叫声。
+
+完整设计、接口、参数、失败模式与验收见：
+
+**[`docs/duck-ros2-asr-architecture.zh-CN.md`](./duck-ros2-asr-architecture.zh-CN.md)**
 
 ---
 
@@ -227,7 +267,7 @@ flowchart TB
 
 ### 8.2 各包的 lifecycle
 
-`duck_audio` / `duck_ear` / `tts` 都是组合式普通节点，lifecycle 设计仍待实现。`duck_audio` 的 voice 默认可用，特雷门等待 `~/theremin/enable`，合唱暂不提供；`tts` 由参数选择后端，后端不可用时节点保持运行但请求失败。
+`duck_audio` / `duck_ear` / `tts` / `asr` / `duck_asr` 都是组合式普通节点，lifecycle 设计仍待实现。`duck_audio` 的 voice 默认可用，特雷门等待 `~/theremin/enable`，合唱暂不提供；`tts` 由参数选择后端，后端不可用时节点保持运行但请求失败。
 
 ---
 
@@ -323,6 +363,29 @@ src/
     models/pet_detect.onnx
     config/duck_ear.yaml
     launch/duck_ear.launch.py
+
+  asr_interface/   # 详细布局见 docs/duck-ros2-asr-architecture.zh-CN.md
+    msg/{AsrEvent,AsrState}.msg
+    include/asr_interface/ros_msg.hpp
+    python/asr_interface_msg/ros_msg.py
+
+  asr/            # 库 + 节点；不依赖任何 duck_* 包
+    include/asr/...
+    src/...
+    config/asr.yaml
+    launch/asr.launch.py
+    tools/replay_capture.cpp
+
+  duck_asr_interface/
+    msg/DuckIntent.msg
+    include/duck_asr_interface/ros_msg.hpp
+
+  duck_asr/                   # 口令/意图；链接 libasr，不实现 ASR 后端
+    include/duck_asr/...
+    src/...
+    config/{duck_commands,duck_asr}.yaml
+    launch/duck_asr.launch.py
+    tools/gen_vocabulary.py
 ```
 
 ---
@@ -339,6 +402,10 @@ src/
 2. `duck_ear` 在麦克风上检测摸头并发布 `PettingEvent`；`coo`/动作消费待接。详见 [`src/duck_ear/docs/duck-ros2-ear-architecture.zh-CN.md`](../src/duck_ear/docs/duck-ros2-ear-architecture.zh-CN.md)。
 3. `duck_audio` 的 voice/wheee/特雷门可用，且单模块失败不影响其他模块；合唱暂不实现。
 4. `duck_audio` 默认节点为 `/duck_audio`，`~/voice`、`~/theremin` 接口可用。
+5. `asr` 的 `~/event` 能发布 `EVENT_WAKE`/`EVENT_FINAL`，播放期间门控；`duck_asr` 能查询电量并播报、
+   发布姿势/动作 `DuckIntent`；姿势/动作执行待 `duck_control` 命令接口。`duck_asr_node` 默认同进程组合
+   `libasr`，`asr.compose=false` 时可用独立 `asr_node`。详见
+   [`docs/duck-ros2-asr-architecture.zh-CN.md`](./duck-ros2-asr-architecture.zh-CN.md)。
 
 ---
 
@@ -351,6 +418,10 @@ src/
 5. **`audio_io` capture + `duck_ear`**：采集与摸头检测已完成；声音/动作消费待接。详见 [`src/duck_ear/docs/duck-ros2-ear-architecture.zh-CN.md`](../src/duck_ear/docs/duck-ros2-ear-architecture.zh-CN.md)。
 6. **`duck_audio` 的 theremin（已完成）/ chorale（待实现）**：特雷门按 `~/theremin/enable` 开启；合唱接口保留，当前节点不广告。
 7. **AIC3104 板级适配**：overlay/DKMS 或换 USB 声卡；再切回机器人内置扬声器/麦克风。
+8. **语音识别（设计）**：`asr_interface` + `asr`（mock 后端 → 真实后端）→
+   `duck_asr_interface` + `duck_asr`（链接 `libasr` 同进程组合；口令/电量/TTS）→ 接 `duck_control`
+   命令接口执行动作。详见
+   [`docs/duck-ros2-asr-architecture.zh-CN.md`](./duck-ros2-asr-architecture.zh-CN.md)。
 
 ---
 
@@ -359,6 +430,7 @@ src/
 - `ros2_control` / `DuckPolicyController` 负责 50 Hz 运动闭环；**不读音频、不写音频**。
 - `duck_audio` 的 theremin（未来 chorale）需要动嘴/动头时，通过控制层的命令接口发送目标，不直接写舵机。
 - `audio_io` 不感知机器人语义；它只认 `AudioClip`、`AudioStream`、优先级和组。
+- `asr` / `duck_asr` 不进入 50 Hz 控制回路；识别结果只以 `DuckIntent` 交给行为/控制节点，由后者做安全仲裁后写控制接口。
 - 音频节点崩溃不应导致运动控制崩溃；反之，控制层重启不应丢失音库或 TTS 缓存。
 
 ---
@@ -427,3 +499,5 @@ pw-play /tmp/test.wav
 3. `duck_audio` 内部的 theremin / chorale 是否始终同进程，还是保留按参数禁用/拆回独立节点的能力？取决于实测端到端延迟和稳定性。
 4. 音库 seed 是否继续绑定 SoC serial，还是允许每台机器人手工配置？
 5. WebRTC 双向音频是否在近期进入范围？如果进入，`audio_io` 需要增加 `AudioStream` 的 jitter buffer 和回声消除策略。
+6. 语音识别后端选 `sherpa-onnx` 还是 `vosk`？唤醒词用现成中文 KWS 模型还是自定义训练？需要板端实测 CPU、延迟、丢包后再定。
+7. 姿势/动作口令是否必须唤醒后执行？App/按键触发（`push_to_talk`）是否也要作为正式入口？
