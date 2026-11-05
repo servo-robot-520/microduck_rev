@@ -1,7 +1,7 @@
 # Microduck 语音识别（ASR / 口令）ROS 2 架构
 
 > 对象：`microduck_rev`（ROS 2 Humble，C++23，`ament_cmake`）。
-> 状态：设计稿。`src/asr` 仓库当前只有 `LICENSE`，尚无代码。
+> 状态：`asr` / `asr_node` 已实现（可切换 SenseVoice / KWS 后端，支持常开唤醒词阶段，本机已用真实模型验证）；`asr_interface`、`duck_asr_interface` 已实现；`duck_asr` 待实现。
 > 上游约束：[`duck-ros2-audio-architecture.zh-CN.md`](./duck-ros2-audio-architecture.zh-CN.md)（麦克风唯一所有者、通用层不含鸭子语义）。
 > 相关包：`audio_io`、`audio_io_interface`、`tts`、`tts_interface`、`duck_ear`、`battery_monitor`、`duck_control`。
 
@@ -122,273 +122,17 @@ flowchart TB
 
 ## 3. 通用层：`asr`
 
-### 3.1 包与产物
+`asr` 是独立的 git 项目；内部架构、后端接口、SenseVoice/KWS 实现、唤醒会话、事件字段、参数和失败模式维护在：
 
-| 产物 | 说明 |
-|---|---|
-| `libasr.so` | 组合节点、管线、VAD、重采样、后端工厂 |
-| `asr_node` | 只含 `main.cpp`，节点默认全名 `/asr` |
-| `asr_interface` | 事件/状态消息；C++ 与 Python 端点 helper |
-| `tools/replay_capture` | 把 WAV 按 `AudioStream` 块发布到采集话题，用于离线验收（不是节点） |
+**[`src/asr/docs/asr-architecture.zh-CN.md`](../src/asr/docs/asr-architecture.zh-CN.md)**
 
-库导出两层：`AsrNode(rclcpp::Node::SharedPtr)`（ROS 组合，和 `tts::TtsNode` 同构）与
-`Pipeline`（纯 C++：`push_pcm(span<const int16_t>, rate, channels)` + 事件回调）。非 ROS 项目或宿主
-节点可以只用 `Pipeline`；`main.cpp` 不承载业务逻辑。
+系统级只保留这些约束：
 
-`asr_node` 只负责构造 `AsrNode` 并运行执行器，保留给单独测试、WAV/rosbag 回放和其他机器人。
-鸭子生产部署由 `duck_asr_node` 直接实例化 `AsrNode`，不启动 `asr_node` 可执行文件；两者使用同一套
-参数和 `AsrEvent` 契约，避免测试路径与生产路径分叉。
-
-命名遵循现有约定：可执行文件 `*_node`，节点名是角色名；多机器人用 `namespace:=robot1` 得到
-`/robot1/asr`，`audio_io.node` 与 `capture.topic` 同步改写。
-
-### 3.2 管线
-
-```text
-/audio_io/capture
-  → 校验（encoding/channels/字节数）
-  → 下混 mono
-  → 重采样到 16 kHz（带跨块状态）
-  → 有界 PCM 环形队列（采集回调只入队）
-  → 工作线程：
-       ├─ 门控检查（正在播放则丢弃并重置）
-       ├─ 唤醒词 KWS（常开，仅 Idle）
-       ├─ VAD / 端点检测
-       ├─ ASR 解码（仅在唤醒后的会话内）
-       └─ 发布 AsrEvent
-```
-
-采集回调**不做推理、不分配大对象、不阻塞**；所有后端推理在单工作线程内串行执行，和 `tts` 的
-“单工作线程调度”同构。
-
-### 3.3 会话状态机
-
-```mermaid
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> Listening: EVENT_WAKE 命中
-  Listening --> Decoding: VAD 检出语音
-  Decoding --> Decoding: EVENT_PARTIAL
-  Decoding --> Idle: EVENT_FINAL / 静音超时 / 最长时长
-  Idle --> Gated: audio_io EVENT_STARTED
-  Listening --> Gated: 播放开始（取消本次会话）
-  Decoding --> Gated: 播放开始（取消本次会话）
-  Gated --> Idle: 播放结束 + holdoff
-```
-
-- `Idle` 只跑 KWS，成本最低；`Listening` 开始把 PCM 送 ASR（或命令 KWS）；`Decoding` 持续出 partial。
-- 会话有 `listen.timeout_ms`（唤醒后多久没说话放弃）和 `listen.max_utterance_ms`（最长一句）。
-- `pipeline.mode` 至少支持：`wake_command`（默认）、`keyword_command`、`push_to_talk`、`free_asr`（后期 agent）、`off`。
-- `gate` 收到播放开始事件时清空队列、重置 VAD/ASR，避免把机器人自己的话识别成命令。
-
-### 3.3.1 两条固定口令路线
-
-固定口令不必一上来就接完整 ASR；两种路线共用同一套话题和会话状态机：
-
-| 路线 | 做法 | 优点 | 代价 | 适用 |
-|---|---|---|---|---|
-| `keyword_command` | 唤醒后只跑 KWS，每个口令就是一个关键词 | 延迟最低、CPU 最低、后端最小 | 只能精确短语；同义说法要逐条列；无法扩展任意语音 | 板端算力紧张、口令少且固定 |
-| `wake_command` | 唤醒后跑词表约束 ASR，输出文本再匹配意图 | 支持同义说法、槽位、后期平滑升级自由识别 | 需要 ASR 模型、延迟和 CPU 更高 | **默认**；与后期 agent 同一条路径 |
-
-建议先按 `wake_command` 设计接口；板端实测若 ASR 延迟/CPU 不可接受，把模式切到 `keyword_command`
-即可，`duck_asr`、`AsrEvent`、`DuckIntent` 都不变。
-
-### 3.4 后端抽象
-
-后端只吃 16 kHz mono f32，只吐结果，不发布 ROS 消息、不碰设备。与 `tts` 一样，**v1 用编译期工厂，
-不用 pluginlib**；后端数量到 3 个以上、需要热切换时再考虑插件。
-
-```cpp
-namespace asr {
-
-struct AsrResult {
-    enum class Kind { Partial, Final, Endpoint };
-    Kind kind{Kind::Final};
-    std::string text;
-    float confidence{0.0F};
-};
-
-/// 流式解码后端。Utterance 型后端（如 whisper.cpp）在内部缓冲到 Endpoint 再整体解码。
-class AsrBackend {
-public:
-    virtual ~AsrBackend() = default;
-    virtual std::string_view name() const noexcept = 0;
-    virtual std::expected<void, std::string> initialize(const BackendConfig& config) = 0;
-    /// 编译中性词表/语法；空词表表示自由识别。
-    virtual std::expected<void, std::string> set_vocabulary(const Vocabulary& vocabulary) = 0;
-    virtual void push(std::span<const float> pcm_16k) = 0;
-    virtual std::vector<AsrResult> poll() = 0;
-    virtual void reset() = 0;
-};
-
-/// 常开唤醒词检测；与 ASR 后端解耦，可单独替换。
-class WakeWordDetector {
-public:
-    virtual ~WakeWordDetector() = default;
-    virtual std::expected<void, std::string> initialize(const WakeConfig& config) = 0;
-    virtual std::optional<WakeHit> process(std::span<const float> pcm_16k) = 0;
-    virtual void reset() = 0;
-};
-
-} // namespace asr
-```
-
-候选后端（按板端实测决定，不预设结论）：
-
-| 后端 | 唤醒 | 约束解码 | 备注 |
-|---|---|---|---|
-| `mock` | 可配置 | 忽略 | **第一个实现**，用于无模型 CI/回放 |
-| `sherpa-onnx` | 有 KWS | 关键词/热词 | 同一 C API 覆盖 KWS 与流式 ASR，作为首选评估对象 |
-| `vosk` | 无（用 KWS 或 ASR 词表） | grammar 成熟 | 作为备选；中文小模型体积可控 |
-| `whisper.cpp` | 无 | 无（utterance 型） | 只适合后期自由识别，延迟和板端算力需实测 |
-
-模型放 `share/asr/models/` 或参数指向的绝对路径；节点不内置模型。模型默认在启动时加载，
-保证唤醒后首句延迟可预测；内存不足时再引入 lazy load，v1 不做。
-
-`duck_ear` 与 `asr` 会同时消费麦克风、各自持有推理运行时（ONNX Runtime / 后端库），
-板端内存和 CPU 必须一起实测。不要为了省一份运行时把 ASR 塞进 `duck_ear`：两者模型、采样率契约和
-失败模式不同，合并会让摸头检测和识别互相拖累。
-
-### 3.5 接口
-
-`asr_interface`：
-
-| 端点 | 类型 | 语义 | QoS |
-|---|---|---|---|
-| `~/event` | topic `AsrEvent` | `EVENT_WAKE` / `EVENT_SPEECH_START` / `EVENT_PARTIAL` / `EVENT_ENDPOINT` / `EVENT_FINAL` / `EVENT_FAILED` / `EVENT_CANCELED` | reliable，depth 50 |
-| `~/state` | topic `AsrState` | 后端、模型、模式、门控、音频缺口、错误 | reliable，transient_local，depth 1 |
-| `~/enable` | service `std_srvs/SetBool` | 启停识别（不影响节点运行） | 可选 |
-| `~/listen` | action `Listen` | 按键/App 触发的一次性识别，可取消 | v2，可选 |
-
-`AsrEvent.msg`：
-
-```text
-uint8 EVENT_WAKE=0
-uint8 EVENT_SPEECH_START=1
-uint8 EVENT_PARTIAL=2
-uint8 EVENT_ENDPOINT=3
-uint8 EVENT_FINAL=4
-uint8 EVENT_FAILED=5
-uint8 EVENT_CANCELED=6
-
-std_msgs/Header header
-string session_id       # 一次唤醒会话；部分/最终结果共享
-uint8 event
-string text             # EVENT_WAKE=关键词；EVENT_PARTIAL/EVENT_FINAL=转写；EVENT_FAILED/EVENT_CANCELED=空
-float32 confidence
-string language
-string backend
-string error
-```
-
-`AsrState.msg`：
-
-```text
-std_msgs/Header header
-string backend
-bool model_loaded
-string mode             # wake_command / keyword_command / push_to_talk / free_asr / off
-bool enabled
-bool gated              # 当前因播放而静音
-bool session_active
-uint64 audio_gap_count  # 检测到的 AudioStream 序号缺口
-string last_error
-```
-
-事件语义是**边沿**：一次唤醒只发一个 `EVENT_WAKE`；一句话只发一个 `EVENT_FINAL`（partial 可选）；门控取消发
-`EVENT_CANCELED`，不伪装成空 `EVENT_FINAL`。
-
-### 3.6 输入契约与采集缺口
-
-沿用 `duck_ear` 的输入契约：
-
-```text
-topic        /audio_io/capture
-stream_id    mic
-encoding     s16le / f32le
-sample_rate  48000（可配）
-channels     1（1–2，2 声道下混）
-QoS          best_effort，depth 2
-```
-
-- `AudioStream.sequence` 出现缺口时，**重置 VAD 与解码器**，不能把不连续音频拼成一句；缺口计入
-  `audio_gap_count`。
-- `eos=true` 表示采集停止：结束当前会话并等待恢复，不退出节点。
-- 不合法帧丢一次并只告警一次。
-- `capture` 是 best_effort：板端 CPU 紧张时丢包直接降低识别率，必须实测；不能在 ASR 包里偷偷增加
-  订阅队列深度来“补偿”。
-
-### 3.7 半双工门控
-
-`audio_io` 的播放与麦克风共用一台设备，鸭子说话时麦克风会收到自己的声音。v1 不做 AEC，先做门控：
-
-- 订阅 `<audio_io.node>/event`；`EVENT_STARTED` 进入 `Gated`，`EVENT_FINISHED`/`EVENT_FAILED`/
-  `EVENT_PREEMPTED` 离开，另加 `gate.holdoff_ms` 防止尾音。
-- `gate.max_ms` 兜底，避免事件丢失导致永久静音。
-- 门控期间丢弃 PCM 并重置会话；播放开始时如果正在识别，发 `EVENT_CANCELED`。
-- 后续要“边说边听”再引入 AEC/回声参考，不在 v1 承诺。
-
-### 3.8 参数
-
-| 参数 | 默认 | 说明 |
-|---|---|---|
-| `capture.topic` | `audio_io` 的 `~/capture` | 复用其他项目时改这里 |
-| `capture.stream_id` | `mic` | 空 = 任意 |
-| `audio_io.node` | `/audio_io` | 门控事件来源 |
-| `pipeline.mode` | `wake_command` | `wake_command` / `keyword_command` / `push_to_talk` / `free_asr` / `off` |
-| `input.rate` | `16000` | 后端输入采样率；重采样目标 |
-| `wake.enabled` | `true` | 关闭后只能 PTT/外部触发 |
-| `wake.keywords_file` | 空 | 中性词表；空 = 后端默认唤醒词 |
-| `wake.threshold` | 后端默认 | KWS 阈值 |
-| `wake.cooldown_ms` | `1000` | 防连续触发 |
-| `listen.timeout_ms` | `5000` | 唤醒后等待开口 |
-| `listen.endpoint_silence_ms` | `700` | 判句尾静音 |
-| `listen.max_utterance_ms` | `8000` | 单句上限 |
-| `decoder.backend` | `mock` | `mock` / `sherpa_onnx` / `vosk` / `whisper_cpp` |
-| `decoder.model_dir` | 空 | 后端模型目录 |
-| `decoder.vocabulary_file` | 空 | 中性口令词表；空 = 自由识别 |
-| `decoder.partial_results` | `true` | 是否发布 `EVENT_PARTIAL` |
-| `decoder.confidence_min` | `0.0` | 低于此值不发 `EVENT_FINAL`（后端支持时） |
-| `gate.enabled` | `true` | 播放时静音 |
-| `gate.holdoff_ms` | `300` | 播放结束后的静音保持 |
-| `gate.max_ms` | `15000` | 门控兜底 |
-| `worker.queue_ms` | `2000` | PCM 环形队列上限；溢出丢最旧并计数 |
-| `frame_id` | `mic` | 事件 header |
-
-### 3.9 中性词表
-
-通用包只定义“词表/语法的抽象”，不定义鸭子命令。每个后端负责编译：
-
-```yaml
-# vocabulary.yaml —— 通用格式，鸭子包生成
-language: zh-CN
-phrases:
-  - text: 小鸭小鸭
-    kind: wake
-  - text: 电量
-    kind: command
-  - text: 还有多少电
-    kind: command
-    boost: 1.0
-```
-
-后端分别把它编译成 Vosk grammar JSON、sherpa 关键词文件或 whisper 的 prompt 词表。这样
-`duck_asr` 的配置不随后端格式变化。
-
-### 3.10 失败模式
-
-| 失败 | 行为 |
-|---|---|
-| 模型缺失/加载失败 | `AsrNode` 继续运行，`model_loaded=false`、`last_error` 可读，不发识别事件；`duck_asr` 与其他节点不受影响，但语音链路不可用 |
-| 后端原生崩溃（`segfault`/`abort`/OOM） | 整个 `duck_asr_node` 退出；由 launch（`respawn=True`）或 systemd 重启后 ASR 与意图一起恢复。**重启前语音链路不可用**；控制、播放、`duck_ear` 不受影响 |
-| 后端死锁/无响应 | 进程级 watchdog 只能重启整个 `duck_asr_node`；不能只杀后端 |
-| 采集未启动/停止 | 无输入；等待 `audio_io` 恢复，不退出 |
-| 采集丢包 | 重置解码器，`audio_gap_count++`，不拼接 |
-| 推理异常 | 丢弃本次会话，发 `EVENT_FAILED`，下个会话继续 |
-| 门控事件丢失 | `gate.max_ms` 到期自动恢复 |
-| 下游无人订阅 | 事件丢弃，不阻塞工作线程 |
-
----
+- `asr` 不打开 ALSA，只订阅 `audio_io` 的采集流；
+- `asr` 输出 `AsrEvent` / `AsrState`，接口在 `asr_interface`；
+- 默认可切换 `sense_voice` / `keyword` 后端；唤醒阶段通过 `wake.enabled` 开启；
+- 唤醒词、命令词语料由 `duck_asr` 提供，`asr` 不硬编码鸭子词汇；
+- 生产部署中 `duck_asr_node` 链接 `libasr` 并组合 `AsrNode`，`asr_node` 只用于独立测试和回放。
 
 ## 4. 鸭子层：`duck_asr`
 
@@ -553,21 +297,7 @@ src/
     python/asr_interface_msg/ros_msg.py
     test/
 
-  asr/
-    include/asr/
-      asr_node.hpp
-      pipeline.hpp
-      linear_resampler.hpp
-      voice_activity_detector.hpp
-      asr_backend.hpp
-      wake_word_detector.hpp
-      ffi/                      # 仅在复用 Rust 后端时需要
-    src/...
-    config/asr.yaml
-    launch/asr.launch.py
-    models/                     # 不提交大模型；安装时由脚本/文档提供
-    tools/replay_capture.cpp
-    test/
+  asr/                   # 详细布局见 src/asr/docs/asr-architecture.zh-CN.md
 
   duck_asr_interface/
     msg/DuckIntent.msg
@@ -585,7 +315,8 @@ src/
     test/
 ```
 
-本文位于 `docs/duck-ros2-asr-architecture.zh-CN.md`；各包不再各存一份设计文档，避免版本漂移。
+本文位于 `docs/duck-ros2-asr-architecture.zh-CN.md`；`asr` 的详细设计在独立仓库的
+[`src/asr/docs/asr-architecture.zh-CN.md`](../src/asr/docs/asr-architecture.zh-CN.md)，本文只保留鸭子层和系统接线。
 
 构建依赖方向：
 
@@ -603,36 +334,33 @@ asr              ← duck_asr（链接 libasr，默认组合）
 
 ## 8. 验收标准
 
-1. `asr_node` 以 `decoder.backend=mock` 启动，回放一段 WAV 能发布 `EVENT_WAKE` → `EVENT_FINAL`；
-   没有 `audio_io` 时节点保持运行并报状态。
+1. `asr_node` 用真实模型启动，回放一段 WAV 能发布 `EVENT_SPEECH_START` → `EVENT_ENDPOINT` → `EVENT_FINAL`；
+   没有 `audio_io` 时节点保持运行并报状态。细节见 ASR 文档。
 2. `duck_asr_node` 默认 `asr.compose=true`，不启动外部 `asr_node` 也能收到识别事件并产生意图；
-   `asr.compose=false` 时可配合外部 `asr_node` 或 `ros2 topic pub` 工作。
-3. 真实后端下，说唤醒词后说固定口令得到 `EVENT_FINAL`；说词表外内容不产生可执行 `EVENT_FINAL`。
-4. 播放 `audio_io` 音频期间不产生 `EVENT_WAKE`/`EVENT_FINAL`；播放结束后 `holdoff` 到期恢复。
-5. 采集 `sequence` 缺口时解码器重置，`audio_gap_count` 增加。
-6. `duck_asr` 对“电量”口令读到 `BatteryState` 并通过 `/audio_tts/text` 播报百分比。
-7. `duck_asr` 对“站起来/点点头”等发布 `DuckIntent`，且不写任何关节；执行消费方未实现时只记录。
+   `asr.compose=false` 时可配合外部 `asr_node` 或 `ros2 topic pub` 工作（`duck_asr` 待实现）。
+3. 真实后端下，VAD 检测到语音后得到 `EVENT_FINAL`；启用 wake 时先得到 `EVENT_WAKE`，未命中唤醒词不进入主 ASR。
+4. 播放 `audio_io` 音频期间不产生 `EVENT_FINAL`；唤醒窗口内播放 ack 只暂停会话，播放结束后恢复。
+5. 采集 `sequence` 缺口时 VAD/会话重置，`audio_gap_count` 增加。
+6. `duck_asr` 对“电量”口令读到 `BatteryState` 并通过 `/audio_tts/text` 播报百分比（待实现）。
+7. `duck_asr` 对“站起来/点点头”等发布 `DuckIntent`，且不写任何关节（待实现）。
 8. 删除模型/后端库后 `asr_node` 与 `duck_asr_node` 均存活，`model_loaded=false`，其他节点不受影响。
 9. 依赖检查：`asr` 的 `package.xml` 不含任何 `duck_*`；`duck_asr` 链接 `libasr`，但源码没有复制
    ASR 实现；生产 launch 不同时启动 `asr_node` 与 `asr.compose=true`。
-10. 板端实测记录：CPU、唤醒延迟、句尾到 `EVENT_FINAL`、采集缺口数、内存；数据写入本文。
+10. 板端实测记录：CPU、VAD 起点延迟、句尾到 `EVENT_FINAL`、采集缺口数、内存；数据写入本文。
 
 ---
 
 ## 9. 迁移顺序
 
-1. **接口 + 通用骨架**：`asr_interface`、`asr` 的 mock 后端、
-   重采样/VAD/门控/状态机、`replay_capture` 回放验收。
-2. **真实后端**：先接 `sherpa-onnx` 或 `vosk` 之一，完成 KWS + 词表约束；按板端实测在
-   `wake_command` 与 `keyword_command` 之间选默认值，再决定是否加第二个后端。
-3. **鸭子配置与意图**：`duck_asr_interface`、`duck_commands.yaml`、词表生成、电量查询和 TTS 回复；
+1. **接口 + 通用骨架（已完成）**：`asr_interface`、`asr` 的重采样/VAD/门控/状态机、
+   `replay_capture` 回放验收。
+2. **真实后端（已完成 SenseVoice / KWS + 唤醒阶段）**：接入 `sherpa-onnx` + SenseVoice + silero VAD，
+   以及 KWS 唤醒/关键词后端；详细设计见 ASR 文档。
+3. **鸭子配置与意图（待实现）**：`duck_asr_interface`、`duck_commands.yaml`、词表生成、电量查询和 TTS 回复；
    `duck_asr_node` 链接 `libasr` 并组合 `AsrNode`，同时用 `asr.compose=false` 验证外部 `asr_node` 路径。
 4. **动作执行**：等 `duck_control` 的命令接口落地后，新增 `duck_behavior`（或在控制侧加订阅）消费
    `DuckIntent`；在此之前不承诺姿势/动作可执行。
 5. **自由识别 + agent**：`free_asr` 模式与 agent 订阅；按实测决定是否保留并行约束解码。
-
-重采样器建议在步骤 1 顺手从 `duck_ear` 提到 `common_cpp`（两个消费者、同一 bug 面，但不需要新建包）；
-如果不想动 `duck_ear`，先在通用包内复制并在注释里标注来源，后续再合并。
 
 ---
 
