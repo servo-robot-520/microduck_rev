@@ -11,7 +11,7 @@ StreamPublisher::StreamPublisher(rclcpp::Node& node, std::string stream_id)
     // 与 audio_io 的 ~/stream 订阅匹配：best_effort、只保留最新两块。
     const auto qos = rclcpp::QoS(rclcpp::KeepLast(2)).best_effort();
     publisher_ = node_.create_publisher<audio_io_interface::msg::AudioStream>(
-            audio_io_interface::topic_stream(), qos);
+            audio_io_interface::topic_stream(audio_io_interface::kDefaultNodeFqn, node_.get_namespace()), qos);
 }
 
 void StreamPublisher::publish(const int16_t* samples, const std::size_t frames, const bool eos) {

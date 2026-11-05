@@ -21,7 +21,8 @@ namespace duck_audio {
     VoiceModule::VoiceModule(rclcpp::Node& node, VoiceRuntime& runtime, AudioSession& session) :
         node_(node), runtime_(runtime), session_(session) {
         publisher_ = node_.create_publisher<audio_io_interface::msg::AudioClip>(
-            audio_io_interface::topic_play(), rclcpp::QoS(rclcpp::KeepLast(10)).reliable());
+            audio_io_interface::topic_play(audio_io_interface::kDefaultNodeFqn, node.get_namespace()),
+            rclcpp::QoS(rclcpp::KeepLast(10)).reliable());
     }
 
     VoiceModule::PlayResult VoiceModule::play(const std::string& tag, const uint32_t variant) {

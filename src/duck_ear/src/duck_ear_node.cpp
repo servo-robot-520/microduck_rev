@@ -60,7 +60,7 @@ namespace duck_ear {
         publisher_ = node_->create_publisher<duck_audio_interface::msg::PettingEvent>(
             std::string(duck_audio_interface::kPrivatePettingEvent), rclcpp::QoS(rclcpp::KeepLast(10)).reliable());
         subscription_ = node_->create_subscription<audio_io_interface::msg::AudioStream>(
-            audio_io_interface::topic_capture(),
+            audio_io_interface::topic_capture(audio_io_interface::kDefaultNodeFqn, node_->get_namespace()),
             rclcpp::QoS(rclcpp::KeepLast(2)).best_effort(),
             [this](const audio_io_interface::msg::AudioStream::ConstSharedPtr& message) {
                 on_stream(message);
