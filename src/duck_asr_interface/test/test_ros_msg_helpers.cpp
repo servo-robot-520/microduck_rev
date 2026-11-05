@@ -19,6 +19,13 @@ namespace {
         EXPECT_EQ(duck_asr_interface::topic_intent(), "/duck_asr/intent");
     }
 
+    TEST(RosMsgHelpers, QualifiesDefaultNodeWithNamespace) {
+        EXPECT_EQ(duck_asr_interface::qualify_node_fqn("/"), "/duck_asr");
+        EXPECT_EQ(duck_asr_interface::qualify_node_fqn("/robot_a"), "/robot_a/duck_asr");
+        EXPECT_EQ(duck_asr_interface::topic_intent(duck_asr_interface::kDefaultNodeFqn, "/robot_a"),
+                  "/robot_a/duck_asr/intent");
+    }
+
     TEST(RosMsgHelpers, BuildsNamesForCustomNodeFqn) {
         EXPECT_EQ(duck_asr_interface::topic_intent(kRobotNodeFqn), "/robot_a/duck_asr/intent");
         EXPECT_EQ(duck_asr_interface::topic_intent(std::string{kRobotNodeFqn} + "///"),

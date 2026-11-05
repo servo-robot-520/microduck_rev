@@ -31,6 +31,17 @@ TEST(RosMsgHelpers, BuildsDefaultAbsoluteEndpointNames) {
     EXPECT_EQ(duck_audio_interface::topic_mouth(), "/duck_audio/mouth");
 }
 
+TEST(RosMsgHelpers, QualifiesDefaultNodeWithNamespace) {
+    EXPECT_EQ(duck_audio_interface::qualify_node_fqn("/"), "/duck_audio");
+    EXPECT_EQ(duck_audio_interface::qualify_node_fqn("/robot_a"), "/robot_a/duck_audio");
+    EXPECT_EQ(duck_audio_interface::service_play_voice(
+                      duck_audio_interface::kDefaultNodeFqn, "/robot_a"),
+              "/robot_a/duck_audio/voice/play");
+    EXPECT_EQ(duck_audio_interface::topic_petting_event(
+                      duck_audio_interface::kDefaultNodeFqn, "/robot_a"),
+              "/robot_a/duck_audio/petting/event");
+}
+
 TEST(RosMsgHelpers, BuildsNamesForCustomNodeFqn) {
     EXPECT_EQ(duck_audio_interface::service_play_voice(kRobotNodeFqn),
               "/robot_a/duck_audio/voice/play");

@@ -53,6 +53,8 @@ colcon build --base-paths src --packages-select duck_audio_interface
 
 - `include/duck_audio_interface/ros_msg.hpp`：节点私有 endpoint 常量、外部绝对名称 helper、生成类型别名。
 - `python/duck_audio_interface_msg/ros_msg.py`：同一组 endpoint 名称 helper，供 Python 客户端使用。
+- 每个 helper 还接受可选的第二个 namespace 参数，内部调用 `qualify_node_fqn()`；例如
+  `service_play_voice(kDefaultNodeFqn, node->get_namespace())` 得到 `<namespace>/duck_audio/voice/play`。
 - `cmake_include.cmake`：供 CLion 源码聚合构建直接使用 in-tree typesupport target。
 
 ```cpp

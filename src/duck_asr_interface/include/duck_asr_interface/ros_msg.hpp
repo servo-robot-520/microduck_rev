@@ -49,13 +49,35 @@ namespace duck_asr_interface {
     /// 默认 duck_asr 节点全名。
     inline constexpr std::string_view kDefaultNodeFqn = detail::kDefaultNodeFqn;
 
+    /// 把默认节点全名限定到调用方 namespace；根 namespace 保持默认名。
+    [[nodiscard]] inline std::string qualify_node_fqn(
+            const std::string_view node_namespace,
+            const std::string_view default_node_fqn = detail::kDefaultNodeFqn) {
+        const auto base = detail::trim_trailing_slashes(default_node_fqn);
+        detail::require_node_fqn(base);
+        auto ns = detail::trim_trailing_slashes(node_namespace);
+        if (ns.empty()) {
+            ns = "/";
+        }
+        if (ns != "/") {
+            detail::require_node_fqn(ns);
+        }
+        if (ns == "/") {
+            return std::string{base};
+        }
+        return detail::normalized_node_fqn(std::string{ns} + std::string{base});
+    }
+
     /// endpoint owner（duck_asr 节点自身）创建 publisher 时使用的私有名称。
     inline constexpr std::string_view kPrivateTopicIntent = "~/intent";
 
     /// 外部消费者使用的绝对话题名称。
-    /// @param node_fqn duck_asr 节点全名，默认 /duck_asr
-    [[nodiscard]] inline std::string topic_intent(const std::string_view node_fqn = detail::kDefaultNodeFqn) {
-        return detail::endpoint_name(node_fqn, "intent");
+    /// @param node_fqn duck_asr 在根 namespace 下的节点全名，默认 /duck_asr
+    /// @param node_namespace 调用方 namespace；默认 "/"
+    [[nodiscard]] inline std::string topic_intent(
+            const std::string_view node_fqn = detail::kDefaultNodeFqn,
+            const std::string_view node_namespace = "/") {
+        return detail::endpoint_name(qualify_node_fqn(node_namespace, node_fqn), "intent");
     }
 
     // 与生成消息名称一致的简洁类型别名。

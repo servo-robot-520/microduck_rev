@@ -23,6 +23,8 @@
 
 `node_fqn` 必须是非根绝对 ROS 名称，不能包含 ASCII 空白或中间的空路径段；尾部多余 `/` 会自动移除。
 
+`topic_intent(kDefaultNodeFqn, node->get_namespace())` 会自动得到 `<namespace>/duck_asr/intent`。
+
 例如目标节点是 `/robot_a/duck_asr` 时：
 
 ```text
