@@ -171,5 +171,5 @@ colcon_add_subdirectories(
         duck_audio
         duck_ear
         asr
-        duck_asr
+#        duck_asr
 )

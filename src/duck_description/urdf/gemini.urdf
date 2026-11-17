@@ -1,0 +1,143 @@
+<?xml version="1.0"?>
+<robot name="Gemini_description">
+  <!--
+    Gemini (SV1301S_U3) URDF for integration into duck_description.
+
+    Frames
+      camera_geometry_frame : root, SolidWorks geometric center (body origin)
+      camera_link           : left IR optical center, official Gemini convention
+      camera_depth_frame    : co-located with camera_link
+      camera_left_ir_frame  : official left IR name
+      camera_ir_frame       : ROS driver default OB_STREAM_IR name (alias)
+      camera_right_ir_frame : second IR, 40 mm baseline
+      camera_color_frame    : RGB
+
+    SolidWorks measurements from the geometric center:
+      left  IR: (+3.50, +20.00, 0.00) mm
+      right IR: (+3.50, -20.00, 0.00) mm
+      RGB     : (+3.84, +10.00, 0.00) mm
+
+    Axes: x forward, y left, z up (REP-103).
+
+    Integration: duck_description should connect
+      camera_mount_link --fixed, identity--> camera_geometry_frame
+    camera_geometry_frame is the root, so it has no parent in this file.
+    Do NOT connect camera_mount_link to camera_link as well: a URDF link
+    can only have one parent.
+  -->
+
+  <!-- Body frame at the SolidWorks geometric center. Mesh and inertia stay at 0. -->
+  <link name="camera_geometry_frame">
+    <inertial>
+      <origin
+        xyz="-0.000204089947946893 -0.000343392393931525 0.0000158351491786137"
+        rpy="0 0 0" />
+      <mass value="0.0100602945406692" />
+      <inertia
+        ixx="4.09251689126733E-06"
+        ixy="1.37521202670632E-08"
+        ixz="4.16311835612066E-09"
+        iyy="5.8001490959718E-07"
+        iyz="4.08427465276996E-09"
+        izz="3.80400748058935E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://Gemini_description/meshes/camera_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.82353 0.82353 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://Gemini_description/meshes/camera_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Official camera base frame: left IR optical center. -->
+  <link name="camera_link" />
+  <joint name="camera_link_joint" type="fixed">
+    <origin xyz="0.0035 0.02 0" rpy="0 0 0" />
+    <parent link="camera_geometry_frame" />
+    <child link="camera_link" />
+  </joint>
+
+  <!-- Depth frame: co-located with the left IR, as published by the ROS driver. -->
+  <link name="camera_depth_frame" />
+  <joint name="camera_depth_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="camera_link" />
+    <child link="camera_depth_frame" />
+  </joint>
+
+  <!-- Official Gemini2 name for the left IR / depth reference camera. -->
+  <link name="camera_left_ir_frame" />
+  <joint name="camera_left_ir_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="camera_depth_frame" />
+    <child link="camera_left_ir_frame" />
+  </joint>
+
+  <link name="camera_left_ir_optical_frame" />
+  <joint name="camera_left_ir_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963267949 0 -1.5707963267949" />
+    <parent link="camera_left_ir_frame" />
+    <child link="camera_left_ir_optical_frame" />
+  </joint>
+
+  <!-- ROS driver default frame for OB_STREAM_IR (same physical left IR). -->
+  <link name="camera_ir_frame" />
+  <joint name="camera_ir_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="camera_depth_frame" />
+    <child link="camera_ir_frame" />
+  </joint>
+
+  <link name="camera_ir_optical_frame" />
+  <joint name="camera_ir_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963267949 0 -1.5707963267949" />
+    <parent link="camera_ir_frame" />
+    <child link="camera_ir_optical_frame" />
+  </joint>
+
+  <!-- Second IR camera: 40 mm baseline, no separate stream on this device. -->
+  <link name="camera_right_ir_frame" />
+  <joint name="camera_right_ir_joint" type="fixed">
+    <origin xyz="0 -0.040 0" rpy="0 0 0" />
+    <parent link="camera_depth_frame" />
+    <child link="camera_right_ir_frame" />
+  </joint>
+
+  <link name="camera_right_ir_optical_frame" />
+  <joint name="camera_right_ir_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963267949 0 -1.5707963267949" />
+    <parent link="camera_right_ir_frame" />
+    <child link="camera_right_ir_optical_frame" />
+  </joint>
+
+  <!-- RGB camera: SW nominal (0.34, -10, 0) mm from the left IR. -->
+  <link name="camera_color_frame" />
+  <joint name="camera_color_joint" type="fixed">
+    <origin xyz="0.00034 -0.010 0" rpy="0 0 0" />
+    <parent link="camera_depth_frame" />
+    <child link="camera_color_frame" />
+  </joint>
+
+  <link name="camera_color_optical_frame" />
+  <joint name="camera_color_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963267949 0 -1.5707963267949" />
+    <parent link="camera_color_frame" />
+    <child link="camera_color_optical_frame" />
+  </joint>
+
+  <link name="camera_depth_optical_frame" />
+  <joint name="camera_depth_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963267949 0 -1.5707963267949" />
+    <parent link="camera_depth_frame" />
+    <child link="camera_depth_optical_frame" />
+  </joint>
+</robot>
