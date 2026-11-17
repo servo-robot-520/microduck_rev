@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!-- duck_description 总装文件（xacro）
+     duck_description.urdf  SW 导出的机器人本体（含 URDF 修正与配色），可整文件重新导出覆盖
+     gemini.urdf            Gemini (SV1301S_U3) 相机坐标系树，独立维护/复用
+     两者都是完整 URDF，xacro include 把各自的 <robot> 子内容拼入本文件，
+     再以恒等固定关节连接 camera_mount 与 camera_geometry_frame（原点重合）。
+     SW 重新导出 duck_description.urdf 后无需改动本文件。 -->
+<robot name="duck_description" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="duck_description.urdf" />
+  <xacro:include filename="gemini.urdf" />
+
+  <joint name="camera_geometry_frame_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="camera_mount" />
+    <child link="camera_geometry_frame" />
+  </joint>
+</robot>

@@ -1,25 +1,27 @@
 import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
     package_dir = get_package_share_directory('duck_description')
 
-    # URDF file path
-    urdf_file = os.path.join(package_dir, 'urdf', 'duck_description.urdf')
+    # xacro 总装文件（拼装 duck_description.urdf + gemini.urdf）
+    xacro_file = os.path.join(package_dir, 'urdf', 'duck_description.urdf.xacro')
 
-    # Read URDF file content
-    with open(urdf_file, 'r') as file:
-        robot_description = file.read()
+    # 由 xacro 生成 robot_description；传入普通 urdf 文件也可以（xacro 原样通过）
+    robot_description = ParameterValue(
+        Command(['xacro ', LaunchConfiguration('urdf_file')]), value_type=str)
 
     # Create LaunchDescription
     return LaunchDescription([
 
         # Declare urdf_file argument to allow external input
-        DeclareLaunchArgument('urdf_file', default_value=urdf_file),
+        DeclareLaunchArgument('urdf_file', default_value=xacro_file),
 
         # Launch joint_state_publisher_gui node
         Node(
@@ -47,4 +49,3 @@ def generate_launch_description():
             parameters=[{'robot_description': robot_description}]
         ),
     ])
-    

@@ -3,7 +3,7 @@
 <package format="3">
   <name>duck_description</name>
   <version>0.0.1</version>
-  <description>TODO: Package description</description>
+  <description>duck description</description>
   <maintainer email="ohmdmbct@gmail.com">greenhand520</maintainer>
   <license>AGPL-3.0-only</license>
 
@@ -15,6 +15,7 @@
   <depend>gazebo_ros</depend>
 
   <exec_depend>urdf_launch</exec_depend>
+  <exec_depend>xacro</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

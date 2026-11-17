@@ -20,14 +20,18 @@
     Axes: x forward, y left, z up (REP-103).
 
     Integration: duck_description should connect
-      camera_mount_link --fixed, identity--> camera_geometry_frame
+      camera_mount_link -[fixed, identity]-> camera_geometry_frame
     camera_geometry_frame is the root, so it has no parent in this file.
     Do NOT connect camera_mount_link to camera_link as well: a URDF link
     can only have one parent.
   -->
 
-  <!-- Body frame at the SolidWorks geometric center. Mesh and inertia stay at 0. -->
+  <!-- Body frame at the SolidWorks geometric center.
+       集成到 duck_description 时本帧只作坐标系：同一 Gemini Asm 实体（网格 camera_mount.STL、
+       与 camera_mount 原点重合）的网格与惯量由 camera_mount link 承载，避免重复渲染与重复计质量。
+       独立使用本文件（如在其他项目）时，恢复下方注释块，并把 mesh 路径指向本设备的相机 STL。 -->
   <link name="camera_geometry_frame">
+    <!--
     <inertial>
       <origin
         xyz="-0.000204089947946893 -0.000343392393931525 0.0000158351491786137"
@@ -56,6 +60,7 @@
         <mesh filename="package://Gemini_description/meshes/camera_link.STL" />
       </geometry>
     </collision>
+    -->
   </link>
 
   <!-- Official camera base frame: left IR optical center. -->
