@@ -30,6 +30,7 @@ __pycache__
 .mimocode
 .codex
 .opencode
+.omp
 .agents
 .superpowers
 .planning
@@ -54,6 +55,7 @@ src/tts
 src/tts_interface
 src/asr
 src/asr_interface
+src/servo_studio
 
 /scripts/
 ws_tools
