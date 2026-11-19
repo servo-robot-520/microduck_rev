@@ -164,7 +164,7 @@ colcon_add_subdirectories(
         asr_interface
         duck_asr_interface
         mpu6500_ros2_control
-        feetech_servo_ros2_control
+        feetech_scs_ros2_control
         battery_monitor
         audio_io
         tts
